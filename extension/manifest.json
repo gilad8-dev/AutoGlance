@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "AutoGlance",
+  "version": "1.0.0",
+  "description": "AI browser copilot with visual page understanding - powered by Claude",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "permissions": [
+    "sidePanel",
+    "tabs",
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Open AutoGlance",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  }
+}

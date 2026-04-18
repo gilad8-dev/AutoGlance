@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoGlance</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo-icon">◈</span>
+      <span class="logo-text">AutoGlance</span>
+      <span id="provider-badge" class="provider-badge" title="Active AI provider"></span>
+    </div>
+    <div class="header-actions">
+      <button id="screenshot-toggle" class="icon-btn" title="Toggle screenshot capture" aria-label="Toggle screenshot capture">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+      </button>
+      <button id="clear-btn" class="icon-btn" title="Clear conversation" aria-label="Clear conversation">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6M14 11v6"/>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+      </button>
+      <button id="settings-btn" class="icon-btn" title="Open settings" aria-label="Open settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Provider & Model Toggles ───────────────────────── -->
+  <div class="controls-bar">
+    <div id="provider-toggle" class="provider-toggle" role="radiogroup" aria-label="Select AI provider">
+      <button class="provider-chip provider-chip--anthropic" data-provider="anthropic" role="radio" aria-checked="false" type="button">Claude</button>
+      <button class="provider-chip provider-chip--openai"    data-provider="openai"    role="radio" aria-checked="false" type="button">GPT</button>
+      <button class="provider-chip provider-chip--gemini"    data-provider="gemini"    role="radio" aria-checked="false" type="button">Gemini</button>
+    </div>
+    <select id="model-select" class="model-select" aria-label="Select model"></select>
+  </div>
+
+  <!-- ── Privacy Status Bar ──────────────────────────────── -->
+  <div id="privacy-bar" class="privacy-bar privacy-enabled">
+    <span id="privacy-dot" class="privacy-dot"></span>
+    <span id="privacy-label" class="privacy-label">Screenshot enabled</span>
+  </div>
+
+  <!-- ── API Key Warning (shown when no key configured) ──── -->
+  <div id="api-key-warning" class="api-key-warning hidden">
+    <div class="warning-icon">⚠</div>
+    <div class="warning-text">
+      <strong>API key required</strong>
+      <p>Add your Anthropic API key in settings to start chatting.</p>
+    </div>
+    <button id="warning-settings-btn" class="warning-btn">Open Settings</button>
+  </div>
+
+  <!-- ── Message Feed ────────────────────────────────────── -->
+  <main id="messages" class="messages" role="log" aria-live="polite" aria-label="Conversation">
+    <div class="welcome">
+      <div class="welcome-icon">◈</div>
+      <h2>AutoGlance</h2>
+      <p>Your AI browser copilot. Ask about anything on the current page - I can see what you see.</p>
+      <div class="welcome-suggestions">
+        <button class="suggestion-chip" data-text="What am I looking at?">What am I looking at?</button>
+        <button class="suggestion-chip" data-text="Summarize this page for me.">Summarize this page</button>
+        <button class="suggestion-chip" data-text="Where do I click to sign up?">Where do I click to sign up?</button>
+        <button class="suggestion-chip" data-text="Explain the chart on screen.">Explain the chart</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Input Area ─────────────────────────────────────── -->
+  <footer class="input-area">
+    <div class="input-wrapper">
+      <textarea
+        id="message-input"
+        class="message-input"
+        placeholder="Ask about this page…"
+        rows="1"
+        dir="auto"
+        aria-label="Message input"
+        autocomplete="off"
+        spellcheck="true"
+      ></textarea>
+      <button id="send-btn" class="send-btn" title="Send (Enter)" aria-label="Send message" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="input-meta">
+      <span id="context-badge" class="context-badge context-badge--active">
+        <svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10">
+          <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+          <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+        </svg>
+        With screenshot
+      </span>
+    </div>
+  </footer>
+
+  <!-- Classic scripts execute before the deferred ES module, making globals available -->
+  <script src="../lib/vendor/marked.min.js"></script>
+  <script src="../lib/vendor/katex.min.js"></script>
+  <script src="../lib/vendor/highlight.min.js"></script>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
