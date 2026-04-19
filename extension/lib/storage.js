@@ -10,7 +10,7 @@
  *   { id, displayName, provider, family, capabilities? }
  *
  * `capabilities` is optional metadata (e.g. 'vision', 'streaming', 'reasoning').
- * It is informational — no code path gates behavior on a specific capability,
+ * It is informational - no code path gates behavior on a specific capability,
  * and no code path special-cases a specific model id or family.
  */
 export const MODELS = [
@@ -19,12 +19,12 @@ export const MODELS = [
   { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6 (Balanced)', provider: 'anthropic', family: 'claude-4',   capabilities: ['vision', 'streaming'] },
   { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5 (Fast)',      provider: 'anthropic', family: 'claude-4',   capabilities: ['vision', 'streaming'] },
 
-  // ── OpenAI — GPT-5.4 (newest) ──
+  // ── OpenAI - GPT-5.4 (newest) ──
   { id: 'gpt-5.4',      displayName: 'GPT-5.4',      provider: 'openai', family: 'gpt-5.4' },
   { id: 'gpt-5.4-mini', displayName: 'GPT-5.4 mini', provider: 'openai', family: 'gpt-5.4' },
   { id: 'gpt-5.4-nano', displayName: 'GPT-5.4 nano', provider: 'openai', family: 'gpt-5.4' },
 
-  // ── OpenAI — prior families retained ──
+  // ── OpenAI - prior families retained ──
   { id: 'gpt-4.1',      displayName: 'GPT-4.1',           provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
   { id: 'gpt-4.1-mini', displayName: 'GPT-4.1 mini',      provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
   { id: 'gpt-4.1-nano', displayName: 'GPT-4.1 nano',      provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
@@ -52,7 +52,7 @@ export function getModelsByProvider(provider) {
   return MODELS.filter((m) => m.provider === provider);
 }
 
-/** Lookup by id. Returns null for unknown ids — callers should not treat that as invalid. */
+/** Lookup by id. Returns null for unknown ids - callers should not treat that as invalid. */
 export function getModelById(id) {
   return MODELS.find((m) => m.id === id) ?? null;
 }
@@ -66,7 +66,7 @@ export const DEFAULT_SETTINGS = {
   openaiApiKey: '',
   geminiApiKey: '',
 
-  // Per-provider model selections — defaults point at each provider's newest family.
+  // Per-provider model selections - defaults point at each provider's newest family.
   anthropicModel: 'claude-opus-4-7',
   openaiModel:    'gpt-5.4',
   geminiModel:    'gemini-2.0-flash-exp',
@@ -86,7 +86,7 @@ export function getActiveApiKey(settings) {
 
 /**
  * Returns the model id for the currently selected provider.
- * If the stored value is unknown to MODELS, it is still returned as-is — we do
+ * If the stored value is unknown to MODELS, it is still returned as-is - we do
  * not silently downgrade to a "known" model. The API call will surface any
  * genuine error from the provider.
  */

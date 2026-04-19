@@ -35,6 +35,7 @@ const sendBtn          = $('send-btn');
 const clearBtn         = $('clear-btn');
 const settingsBtn      = $('settings-btn');
 const screenshotToggle = $('screenshot-toggle');
+const inputArea        = document.querySelector('.input-area');
 const privacyBar       = $('privacy-bar');
 const privacyLabel     = $('privacy-label');
 const apiKeyWarning    = $('api-key-warning');
@@ -90,12 +91,12 @@ function bindEvents() {
 
   screenshotToggle.addEventListener('click', toggleScreenshot);
 
-  // Provider chips — click switches provider, or opens Settings if no key.
+  // Provider chips - click switches provider, or opens Settings if no key.
   providerToggle.querySelectorAll('.provider-chip').forEach((chip) => {
     chip.addEventListener('click', () => handleProviderClick(chip.dataset.provider));
   });
 
-  // Model dropdown — save the new choice for the active provider.
+  // Model dropdown - save the new choice for the active provider.
   modelSelect.addEventListener('change', handleModelChange);
 
   $('warning-settings-btn').addEventListener('click', () => {
@@ -160,18 +161,18 @@ async function handleSend() {
     const privacyStatus = computePrivacyStatus();
     updatePrivacyUI(privacyStatus);
 
-    // Capture & compress screenshot if allowed
+    // Privacy gate: only share page data when the user hasn't turned the
+    // screenshot off and the domain isn't blocklisted. Screenshot + page
+    // metadata travel together - toggling off means nothing leaves the tab.
     let screenshot = null;
+    let pageContext = null;
     if (privacyStatus.state === 'enabled') {
       screenshot = await captureScreenshot();
+      const ctxResult = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
+      if (ctxResult?.success) pageContext = ctxResult.context;
     }
 
-    // Get page context (URL, title, selected text)
-    let pageContext = null;
-    const ctxResult = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
-    if (ctxResult?.success) pageContext = ctxResult.context;
-
-    // Build the text portion of this turn (includes page metadata)
+    // Build the text portion of this turn (includes page metadata when allowed)
     const userText = buildUserText(text, pageContext, !!screenshot);
 
     // Store user turn
@@ -270,8 +271,12 @@ function updatePrivacyUI(privacyOverride) {
   const badgeClasses = { enabled: 'context-badge--active', blocked: 'context-badge--blocked', disabled: 'context-badge--disabled' };
   contextBadge.className = `context-badge ${badgeClasses[state] ?? ''}`;
 
-  const badgeTexts = { enabled: ' With screenshot', blocked: ' Text only (protected)', disabled: ' Text only' };
+  const badgeTexts = { enabled: ' With screenshot', blocked: ' Private (protected)', disabled: ' Private' };
   contextBadge.lastChild.textContent = badgeTexts[state] ?? '';
+
+  inputArea.classList.toggle('mode-enabled',  state === 'enabled');
+  inputArea.classList.toggle('mode-blocked',  state === 'blocked');
+  inputArea.classList.toggle('mode-disabled', state === 'disabled');
 }
 
 async function toggleScreenshot() {
@@ -284,6 +289,7 @@ async function toggleScreenshot() {
 function updateScreenshotToggleUI() {
   screenshotToggle.classList.toggle('active', settings.screenshotEnabled);
   screenshotToggle.classList.toggle('inactive', !settings.screenshotEnabled);
+  screenshotToggle.setAttribute('aria-pressed', String(settings.screenshotEnabled));
   screenshotToggle.title = settings.screenshotEnabled ? 'Screenshot: ON - click to disable' : 'Screenshot: OFF - click to enable';
 }
 
@@ -301,7 +307,7 @@ function updateProviderBadge() {
 /**
  * Paint the provider chips and the model dropdown to match current settings.
  * A chip is marked `.no-key` (gray) when the user has no API key for that
- * provider — the chip is still clickable but clicking opens Settings.
+ * provider - the chip is still clickable but clicking opens Settings.
  */
 function renderControlsBar() {
   const activeProvider = settings.provider ?? 'anthropic';
@@ -316,7 +322,7 @@ function renderControlsBar() {
     chip.setAttribute('aria-checked', isActive ? 'true' : 'false');
     chip.title = hasKey
       ? `Use ${PROVIDERS[provider]?.label ?? provider}`
-      : `No ${PROVIDERS[provider]?.label ?? provider} API key — click to open Settings`;
+      : `No ${PROVIDERS[provider]?.label ?? provider} API key. Click to open Settings.`;
   });
 
   populateModelSelect(activeProvider);
@@ -351,7 +357,7 @@ async function handleProviderClick(provider) {
 
   const hasKey = !!settings[`${provider}ApiKey`];
   if (!hasKey) {
-    // No key for this provider — route the user to Settings rather than
+    // No key for this provider - route the user to Settings rather than
     // switching into a provider that can't make requests.
     chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
     return;
@@ -443,14 +449,13 @@ function clearConversation() {
   conversationHistory = [];
   messagesEl.innerHTML = `
     <div class="welcome">
-      <div class="welcome-icon">◈</div>
-      <h2>AutoGlance</h2>
-      <p>Your AI browser copilot. Ask about anything on the current page - I can see what you see.</p>
+      <h1 class="welcome-greeting">Hello. <em>What are you looking at?</em></h1>
+      <p>I'm AutoGlance, a browser companion with a view. Ask me about anything on this page and I'll see what you see.</p>
       <div class="welcome-suggestions">
         <button class="suggestion-chip" data-text="What am I looking at?">What am I looking at?</button>
         <button class="suggestion-chip" data-text="Summarize this page for me.">Summarize this page</button>
         <button class="suggestion-chip" data-text="Where do I click to sign up?">Where do I click to sign up?</button>
-        <button class="suggestion-chip" data-text="Explain the chart on screen.">Explain the chart</button>
+        <button class="suggestion-chip" data-text="Explain the chart on screen.">Explain the chart on screen</button>
       </div>
     </div>`;
   document.querySelectorAll('.suggestion-chip').forEach((chip) => {
@@ -568,7 +573,7 @@ function renderMarkdown(text) {
  * then restores them after marked runs so marked never mangles the LaTeX.
  * Also catches bare \begin{env}…\end{env} blocks without delimiters.
  */
-// Returns { markdown, restoreSlots } — markdown has NUL sentinels where math was;
+// Returns { markdown, restoreSlots } - markdown has NUL sentinels where math was;
 // restoreSlots(html) swaps them back with rendered MathML after marked.parse runs.
 function extractAndRenderMath(text) {
   const katex = window.katex;
@@ -615,7 +620,7 @@ function extractAndRenderMath(text) {
     .replace(/[\[(]\s*(\x00MATH\d+\x00)\s*[\])]/g, (_, s) => s)
     .replace(/\$(?!\{)([^\n$`]+?)\$/g, (_, latex) => renderSlot(latex, false));
 
-  // Restore shielded code blocks — marked will process them normally
+  // Restore shielded code blocks - marked will process them normally
   markdown = markdown.replace(/\x01CODE(\d+)\x01/g, (_, i) => codeSlots[parseInt(i, 10)]);
 
   function restoreSlots(html) {

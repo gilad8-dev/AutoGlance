@@ -27,7 +27,7 @@ async function init() {
 /**
  * Populate every <select data-provider-models="..."> from the central MODELS
  * registry. The stored model id (if any) is guaranteed to appear as an option,
- * even if it is no longer in MODELS — we never silently downgrade a user's
+ * even if it is no longer in MODELS - we never silently downgrade a user's
  * saved choice to a different model.
  */
 function populateModelDropdowns(s) {
