@@ -14,7 +14,7 @@
   --color-success:      #10b981;
 
   /* Provider accent colors */
-  --color-anthropic: #6366f1;
+  --color-anthropic: #E8784D;
   --color-openai:    #10a37f;
   --color-gemini:    #1a73e8;
 
@@ -152,21 +152,16 @@ body {
 .slider-option[data-provider="openai"].active    { color: var(--color-openai); }
 .slider-option[data-provider="gemini"].active    { color: var(--color-gemini); }
 
-/* Coloured dot per provider */
-.option-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+/* Provider logo icon */
+.option-icon {
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  opacity: 0.5;
+  opacity: 0.45;
   transition: opacity 0.15s;
 }
 
-.slider-option.active .option-dot { opacity: 1; }
-
-.option-dot--anthropic { background: var(--color-anthropic); }
-.option-dot--openai    { background: var(--color-openai); }
-.option-dot--gemini    { background: var(--color-gemini); }
+.slider-option.active .option-icon { opacity: 1; }
 
 /* Provider setting panels */
 .provider-panel {

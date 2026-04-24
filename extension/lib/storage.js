@@ -28,24 +28,24 @@
  */
 export const MODELS = [
   // ── Anthropic - newest first ──
-  { id: 'claude-opus-4-7',  displayName: 'Claude Opus 4.7',   provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
-  { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
-  { id: 'claude-opus-4-6',  displayName: 'Claude Opus 4.6',   provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
-  { id: 'claude-haiku-4-5',  displayName: 'Claude Haiku 4.5',  provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-opus-4-7',   displayName: 'Opus 4.7 (Most capable for complex coding)',  provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6 (Recommended for most tasks)',     provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-opus-4-6',   displayName: 'Opus 4.6 (Great for coding & complex tasks)', provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-haiku-4-5',  displayName: 'Haiku 4.5 (Fast & cost-efficient)',           provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
 
   // ── OpenAI - newest first ──
-  { id: 'gpt-5.5',      displayName: 'GPT-5.5',      provider: 'openai', family: 'gpt-5.5', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-5.4',      displayName: 'GPT-5.4',      provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-5.4-mini', displayName: 'GPT-5.4 mini', provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-5.4-nano', displayName: 'GPT-5.4 nano', provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.5',      displayName: 'GPT 5.5 (Most capable for most tasks)', provider: 'openai', family: 'gpt-5.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4-mini', displayName: 'GPT 5.4 mini (Cost-efficient)',         provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4-nano', displayName: 'GPT 5.4 nano (Most cost-efficient)',    provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4',      displayName: 'GPT 5.4 (Legacy)',                      provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
 
   // ── Google Gemini - newest first ──
-  { id: 'gemini-3.1-pro-preview',       displayName: 'Gemini 3.1 Pro Preview',       provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview', provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-3-flash-preview',       displayName: 'Gemini 3 Flash Preview',       provider: 'gemini', family: 'gemini-3',   capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-2.5-pro',               displayName: 'Gemini 2.5 Pro',               provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-2.5-flash',             displayName: 'Gemini 2.5 Flash',             provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-2.5-flash-lite',        displayName: 'Gemini 2.5 Flash Lite',        provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-3.1-pro-preview',        displayName: '3.1 Pro (Most capable model)',              provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-3.1-flash-lite-preview', displayName: '3.1 Flash Lite (Recommended for most tasks)', provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-3-flash-preview',        displayName: '3 Flash (Fast & capable)',                  provider: 'gemini', family: 'gemini-3',   capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-pro',                displayName: '2.5 Pro (Legacy)',                          provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-flash',              displayName: '2.5 Flash (Legacy)',                        provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-flash-lite',         displayName: '2.5 Flash Lite (Legacy)',                   provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
 ];
 
 /**
