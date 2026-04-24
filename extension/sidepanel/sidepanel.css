@@ -310,6 +310,7 @@ button {
 .controls-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   background: var(--surface-0);
@@ -352,10 +353,23 @@ button {
   cursor: help;
 }
 
+.controls-model {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.controls-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .model-select {
   flex: 0 0 auto;
-  margin-left: auto;
-  max-width: 60%;
   min-width: 0;
   height: 24px;
   padding: 0 18px 0 0;

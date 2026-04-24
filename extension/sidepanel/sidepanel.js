@@ -40,7 +40,6 @@ const privacyBar       = $('privacy-bar');
 const privacyLabel     = $('privacy-label');
 const apiKeyWarning    = $('api-key-warning');
 const contextBadge     = $('context-badge');
-const providerBadge    = $('provider-badge');
 const providerToggle   = $('provider-toggle');
 const modelSelect      = $('model-select');
 
@@ -50,7 +49,6 @@ async function init() {
   settings = await getSettings();
   await refreshTabInfo();
   bindEvents();
-  updateProviderBadge();
   renderControlsBar();
   updatePrivacyUI();
   updateScreenshotToggleUI();
@@ -58,7 +56,6 @@ async function init() {
 
   onSettingsChanged((changed) => {
     Object.assign(settings, changed);
-    updateProviderBadge();
     renderControlsBar();
     updatePrivacyUI();
     updateScreenshotToggleUI();
@@ -328,14 +325,6 @@ function updateScreenshotToggleUI() {
   screenshotToggle.title = settings.screenshotEnabled ? 'Screenshot: ON - click to disable' : 'Screenshot: OFF - click to enable';
 }
 
-// ── Provider Badge ────────────────────────────────────────────────────────
-
-function updateProviderBadge() {
-  const provider = settings.provider ?? 'anthropic';
-  providerBadge.textContent = PROVIDERS[provider]?.shortLabel ?? provider;
-  providerBadge.className = `provider-badge provider-badge--${provider}`;
-}
-
 // ── Controls Bar (provider + model) ───────────────────────────────────────
 
 /**
@@ -362,6 +351,16 @@ function renderControlsBar() {
   populateModelSelect(activeProvider);
 }
 
+function fitSelectWidth(sel) {
+  const text = sel.options[sel.selectedIndex]?.text ?? '';
+  const tmp = document.createElement('span');
+  tmp.style.cssText = 'visibility:hidden;position:fixed;white-space:nowrap;font-family:inherit;font-size:12.5px;font-weight:500;letter-spacing:0.01em;';
+  tmp.textContent = text;
+  document.body.appendChild(tmp);
+  sel.style.width = (tmp.offsetWidth + 16) + 'px';
+  document.body.removeChild(tmp);
+}
+
 function populateModelSelect(provider) {
   const stored = settings[`${provider}Model`] ?? '';
   const known  = getModelsByProvider(provider);
@@ -384,6 +383,7 @@ function populateModelSelect(provider) {
   }
 
   if (stored) modelSelect.value = stored;
+  fitSelectWidth(modelSelect);
 }
 
 async function handleProviderClick(provider) {
@@ -402,7 +402,6 @@ async function handleProviderClick(provider) {
   // onSettingsChanged will re-render; no explicit call needed, but render now
   // for immediate feedback in case the storage event is delayed.
   renderControlsBar();
-  updateProviderBadge();
   checkApiKeyWarning();
 }
 
@@ -411,6 +410,7 @@ async function handleModelChange() {
   const newModel = modelSelect.value;
   if (!newModel) return;
 
+  fitSelectWidth(modelSelect);
   settings[`${provider}Model`] = newModel;
   await saveSettings({ [`${provider}Model`]: newModel });
 }

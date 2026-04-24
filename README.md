@@ -1,6 +1,6 @@
 # AutoGlance
 
-> AI browser copilot with visual page understanding - powered by Claude.
+> AI browser copilot with visual page understanding
 
 AutoGlance is a Chrome Extension (Manifest V3) that opens a side-panel chat inside Chrome. Every message you send can automatically include a screenshot of your current tab, giving the AI full visual context about what you're looking at.
 
