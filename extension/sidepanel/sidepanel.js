@@ -148,12 +148,44 @@ async function handleSend() {
   autoResizeInput();
   sendBtn.disabled = true;
 
-  const welcome = messagesEl.querySelector('.welcome');
-  if (welcome) welcome.remove();
-
   setStreaming(true);
-  appendUserBubble(text);
-  const typingEl = appendTypingIndicator();
+
+  // First send = welcome hero still present. Wrap the DOM swap in a view
+  // transition so the hero collapses into the new user bubble while pills
+  // scatter on stagger (see .welcome + ::view-transition-* CSS). The user
+  // bubble inherits the shared "welcome-hero" name for the duration of the
+  // transition, then the inline name is cleared so subsequent bubbles flow
+  // normally. Reduced-motion and unsupported browsers fall through.
+  const welcome = messagesEl.querySelector('.welcome');
+  const canMorph = !!welcome
+    && typeof document.startViewTransition === 'function'
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let typingEl;
+  if (canMorph) {
+    let morphedRow = null;
+    const transition = document.startViewTransition(() => {
+      welcome.remove();
+      const { rowEl } = appendUserBubble(text);
+      // Skip the default fade-up so the view transition owns the entry motion.
+      rowEl.style.animation = 'none';
+      rowEl.style.viewTransitionName = 'welcome-hero';
+      morphedRow = rowEl;
+      typingEl = appendTypingIndicator();
+    });
+    // Wait for the callback to run so typingEl is set before we proceed.
+    await transition.updateCallbackDone;
+    transition.finished.finally(() => {
+      if (morphedRow) {
+        morphedRow.style.viewTransitionName = '';
+        morphedRow.style.animation = '';
+      }
+    });
+  } else {
+    if (welcome) welcome.remove();
+    appendUserBubble(text);
+    typingEl = appendTypingIndicator();
+  }
 
   try {
     await refreshTabInfo();
@@ -213,7 +245,10 @@ async function handleSend() {
 
   } catch (err) {
     typingEl.remove();
-    if (err.name !== 'AbortError') {
+    // Only suppress AbortErrors that the user explicitly triggered via the stop button.
+    // Timeout aborts fire on the internal controller, leaving abortController.signal intact.
+    const isUserStop = err.name === 'AbortError' && abortController?.signal.aborted;
+    if (!isUserStop) {
       appendErrorBubble(err.message || 'Something went wrong. Please try again.');
     }
   } finally {
@@ -297,8 +332,7 @@ function updateScreenshotToggleUI() {
 
 function updateProviderBadge() {
   const provider = settings.provider ?? 'anthropic';
-  const labels = { anthropic: 'Claude', openai: 'GPT', gemini: 'Gemini' };
-  providerBadge.textContent = labels[provider] ?? provider;
+  providerBadge.textContent = PROVIDERS[provider]?.shortLabel ?? provider;
   providerBadge.className = `provider-badge provider-badge--${provider}`;
 }
 
@@ -609,15 +643,42 @@ function extractAndRenderMath(text) {
     return `\x00MATH${id}\x00`;
   }
 
+  // Order matters: most specific delimiters first so a longer form doesn't get
+  // half-matched by a shorter one (e.g. $$x$$ must run before $...$).
   let markdown = shielded
+    // Display: $$ ... $$
     .replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => renderSlot(latex, true))
+    // Display: \\[ ... \\] (double-escaped form, sometimes emitted when LaTeX comes through a JSON string)
+    .replace(/\\\\\[([\s\S]+?)\\\\\]/g, (_, latex) => renderSlot(latex, true))
+    // Inline: \\( ... \\) (double-escaped form)
+    .replace(/\\\\\(([\s\S]+?)\\\\\)/g, (_, latex) => renderSlot(latex, false))
+    // Display: \[ ... \]
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, latex) => renderSlot(latex, true))
+    // Inline: \( ... \)
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, latex) => renderSlot(latex, false))
+    // Display: [$ ... $] and [$$ ... $$] (bracketed-dollar variants some models invent)
+    .replace(/\[\s*\$\$?([\s\S]+?)\$\$?\s*\]/g, (_, latex) => renderSlot(latex, true))
+    // Inline: ($ ... $) (paren-dollar variant, single-line only to avoid swallowing prose)
+    .replace(/\(\s*\$([^\n$]+?)\$\s*\)/g, (_, latex) => renderSlot(latex, false))
+    // Display: bracketed environments [ \begin{env}...\end{env} ] or ( ... )
     .replace(/[\[(]\s*\n?\s*(\\begin\{([a-zA-Z*]+)\}[\s\S]+?\\end\{\2\})\s*\n?\s*[\])]/g,
       (_, latex) => renderSlot(latex, true))
+    // Display: bare \begin{env}...\end{env}
     .replace(/\\begin\{([a-zA-Z*]+)\}[\s\S]+?\\end\{\1\}/g,
       (match) => renderSlot(match, true))
+    // Display: bare brackets [ … ] wrapping LaTeX with no $ delimiter (model dropped delimiters).
+    // Heuristic: must contain at least one \cmd backslash-letter sequence, no nested brackets,
+    // and not be immediately followed by ( - which would make it a Markdown link reference.
+    .replace(/\[\s*([^\[\]]*?\\[a-zA-Z]+[^\[\]]*?)\s*\](?!\()/g,
+      (_, latex) => renderSlot(latex, true))
+    // Inline: bare parens ( … ) wrapping LaTeX with no $ delimiter
+    .replace(/\(\s*([^()]*?\\[a-zA-Z]+[^()]*?)\s*\)/g,
+      (_, latex) => renderSlot(latex, false))
+    // Cleanup: unwrap leftover brackets/parens around an already-extracted math slot
     .replace(/[\[(]\s*(\x00MATH\d+\x00)\s*[\])]/g, (_, s) => s)
+    // Display: multi-line $ ... $ (a $ followed by newline → treat as display block)
+    .replace(/\$\s*\n([\s\S]+?)\n\s*\$/g, (_, latex) => renderSlot(latex, true))
+    // Inline: $ ... $ (single line, no template-literal ${, no backticks)
     .replace(/\$(?!\{)([^\n$`]+?)\$/g, (_, latex) => renderSlot(latex, false));
 
   // Restore shielded code blocks - marked will process them normally

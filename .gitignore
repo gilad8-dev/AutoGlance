@@ -1,2 +1,27 @@
 .agents/
 .claude/
+.impeccable.md
+skills-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Env / secrets
+.env
+.env.local
+
+# Chrome extension build artifacts
+*.crx
+*.pem
+*.zip

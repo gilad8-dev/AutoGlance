@@ -3,11 +3,9 @@
  * Drives the segmented provider slider and saves all settings.
  */
 
-import { getSettings, saveSettings, DEFAULT_SETTINGS, getModelsByProvider, getModelById } from '../lib/storage.js';
+import { getSettings, saveSettings, DEFAULT_SETTINGS, getModelsByProvider, getModelById, PROVIDERS } from '../lib/storage.js';
 
 const $ = (id) => document.getElementById(id);
-
-const PROVIDERS = ['anthropic', 'openai', 'gemini'];
 
 let settings = null;
 let activeProvider = 'anthropic';
@@ -88,7 +86,7 @@ function selectProvider(provider, animate = true) {
   }
 
   // Show/hide provider panels
-  PROVIDERS.forEach((p) => {
+  Object.keys(PROVIDERS).forEach((p) => {
     $(`panel-${p}`).classList.toggle('hidden', p !== provider);
   });
 }
@@ -157,8 +155,8 @@ async function handleSave() {
     }[activeProvider];
 
     if (!activeKey) {
-      const names = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini' };
-      showStatus(`Add an API key for ${names[activeProvider]} before saving.`, 'error');
+      const name = PROVIDERS[activeProvider]?.label ?? activeProvider;
+      showStatus(`Add an API key for ${name} before saving.`, 'error');
       return;
     }
 

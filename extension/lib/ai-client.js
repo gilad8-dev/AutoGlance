@@ -63,6 +63,7 @@ async function streamAnthropic({ apiKey, model, systemPrompt, history, userText,
       'content-type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({ model, max_tokens: 4096, stream: true, system: systemPrompt, messages }),
     signal,
@@ -165,7 +166,7 @@ async function readSSE(stream, extractor, onChunk) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
 
       // SSE events are separated by \n\n
       const events = buffer.split('\n\n');
@@ -182,10 +183,8 @@ async function readSSE(stream, extractor, onChunk) {
         try { parsed = JSON.parse(json); } catch { continue; }
 
         // Propagate API-level errors embedded in the stream
-        const embeddedError = parsed.error?.message ?? parsed.candidates?.[0]?.finishReason === 'SAFETY'
-          ? 'Response blocked by safety filter'
-          : null;
-        if (embeddedError) throw new Error(embeddedError);
+        if (parsed.error?.message) throw new Error(parsed.error.message);
+        if (parsed.candidates?.[0]?.finishReason === 'SAFETY') throw new Error('Response blocked by safety filter');
 
         const chunk = extractor(parsed);
         if (chunk) {
@@ -197,6 +196,8 @@ async function readSSE(stream, extractor, onChunk) {
   } finally {
     reader.releaseLock();
   }
+
+  if (!fullText) throw new Error('No response received from the API. The request may have been filtered or the model returned an empty reply.');
 
   return fullText;
 }

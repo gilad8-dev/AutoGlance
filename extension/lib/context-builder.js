@@ -25,6 +25,7 @@ Guidelines:
 Math formatting:
 - Always wrap display math (equations, matrices, multi-line expressions) in \[ … \] or $$ … $$
 - Always wrap inline math in \( … \) or $ … $
+- Do NOT invent delimiters like [$ … $], ($ … $), or [ … ] around LaTeX - use only the four forms above
 - Never output raw LaTeX without delimiters - it will not render`;
 
 /**

@@ -7,44 +7,58 @@
  * Single source of truth for every supported model across providers.
  *
  * Entry shape:
- *   { id, displayName, provider, family, capabilities? }
+ *   { id, displayName, provider, family, status?, capabilities? }
  *
- * `capabilities` is optional metadata (e.g. 'vision', 'streaming', 'reasoning').
- * It is informational - no code path gates behavior on a specific capability,
- * and no code path special-cases a specific model id or family.
+ * Field semantics:
+ *   id          - The exact identifier sent to the provider's API. Treated as
+ *                 an opaque string; never validated against a hardcoded list.
+ *   displayName - The human-readable label rendered in dropdowns. Preserved
+ *                 verbatim from configuration - never auto-generated.
+ *   provider    - Routing key. One of 'anthropic' | 'openai' | 'gemini'.
+ *   family      - Free-form grouping label (e.g. 'claude-4', 'gemini-3').
+ *   status      - Optional. 'stable' (default), 'preview', or 'label-only'.
+ *                 'label-only' marks entries supplied as display labels whose
+ *                 exact API id has not been verified - the API call may fail
+ *                 until the id is updated. UI may render a hint for these.
+ *   capabilities - Optional informational tags ('vision', 'streaming',
+ *                  'reasoning'). No code path gates behavior on these.
+ *
+ * No code path anywhere in the extension special-cases a specific id or
+ * family - everything model-related flows through this registry.
  */
 export const MODELS = [
-  // ── Anthropic ──
-  { id: 'claude-opus-4-7',           displayName: 'Claude Opus 4.7 (Best)',       provider: 'anthropic', family: 'claude-4',   capabilities: ['vision', 'streaming'] },
-  { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6 (Balanced)', provider: 'anthropic', family: 'claude-4',   capabilities: ['vision', 'streaming'] },
-  { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5 (Fast)',      provider: 'anthropic', family: 'claude-4',   capabilities: ['vision', 'streaming'] },
+  // ── Anthropic - newest first ──
+  { id: 'claude-opus-4-7',  displayName: 'Claude Opus 4.7',   provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-opus-4-6',  displayName: 'Claude Opus 4.6',   provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
+  { id: 'claude-haiku-4-5',  displayName: 'Claude Haiku 4.5',  provider: 'anthropic', family: 'claude-4', capabilities: ['vision', 'streaming'] },
 
-  // ── OpenAI - GPT-5.4 (newest) ──
-  { id: 'gpt-5.4',      displayName: 'GPT-5.4',      provider: 'openai', family: 'gpt-5.4' },
-  { id: 'gpt-5.4-mini', displayName: 'GPT-5.4 mini', provider: 'openai', family: 'gpt-5.4' },
-  { id: 'gpt-5.4-nano', displayName: 'GPT-5.4 nano', provider: 'openai', family: 'gpt-5.4' },
+  // ── OpenAI - newest first ──
+  { id: 'gpt-5.5',      displayName: 'GPT-5.5',      provider: 'openai', family: 'gpt-5.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4',      displayName: 'GPT-5.4',      provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4-mini', displayName: 'GPT-5.4 mini', provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
+  { id: 'gpt-5.4-nano', displayName: 'GPT-5.4 nano', provider: 'openai', family: 'gpt-5.4', capabilities: ['vision', 'streaming'] },
 
-  // ── OpenAI - prior families retained ──
-  { id: 'gpt-4.1',      displayName: 'GPT-4.1',           provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-4.1-mini', displayName: 'GPT-4.1 mini',      provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-4.1-nano', displayName: 'GPT-4.1 nano',      provider: 'openai', family: 'gpt-4.1', capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-4o',       displayName: 'GPT-4o',            provider: 'openai', family: 'gpt-4o',  capabilities: ['vision', 'streaming'] },
-  { id: 'gpt-4o-mini',  displayName: 'GPT-4o mini',       provider: 'openai', family: 'gpt-4o',  capabilities: ['vision', 'streaming'] },
-  { id: 'o4-mini',      displayName: 'o4-mini (reasoning)', provider: 'openai', family: 'o-series', capabilities: ['reasoning', 'streaming'] },
-  { id: 'o3',           displayName: 'o3 (reasoning)',      provider: 'openai', family: 'o-series', capabilities: ['reasoning', 'streaming'] },
-  { id: 'o1',           displayName: 'o1 (reasoning)',      provider: 'openai', family: 'o-series', capabilities: ['reasoning'] },
-
-  // ── Google Gemini ──
-  { id: 'gemini-2.0-flash-exp', displayName: 'Gemini 2.0 Flash (Recommended)', provider: 'gemini', family: 'gemini-2',   capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-1.5-pro',       displayName: 'Gemini 1.5 Pro (Best quality)',  provider: 'gemini', family: 'gemini-1.5', capabilities: ['vision', 'streaming'] },
-  { id: 'gemini-1.5-flash',     displayName: 'Gemini 1.5 Flash (Fast)',        provider: 'gemini', family: 'gemini-1.5', capabilities: ['vision', 'streaming'] },
+  // ── Google Gemini - newest first ──
+  { id: 'gemini-3.1-pro-preview',       displayName: 'Gemini 3.1 Pro Preview',       provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash Lite Preview', provider: 'gemini', family: 'gemini-3.1', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-3-flash-preview',       displayName: 'Gemini 3 Flash Preview',       provider: 'gemini', family: 'gemini-3',   capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-pro',               displayName: 'Gemini 2.5 Pro',               provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-flash',             displayName: 'Gemini 2.5 Flash',             provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
+  { id: 'gemini-2.5-flash-lite',        displayName: 'Gemini 2.5 Flash Lite',        provider: 'gemini', family: 'gemini-2.5', capabilities: ['vision', 'streaming'] },
 ];
 
-/** Provider-level metadata (connection + UI chrome). Model lists are derived from MODELS. */
+/**
+ * Provider-level metadata (connection + UI chrome). Model lists are derived
+ * from MODELS - never duplicate provider info elsewhere; read it from here.
+ *
+ * `label`      - long form, used in settings UI and error messages.
+ * `shortLabel` - compact form, used in the sidepanel chip / badge.
+ */
 export const PROVIDERS = {
-  anthropic: { label: 'Anthropic Claude', keyPlaceholder: 'sk-ant-…', keyPrefix: 'sk-ant-' },
-  openai:    { label: 'OpenAI',           keyPlaceholder: 'sk-…',     keyPrefix: 'sk-'     },
-  gemini:    { label: 'Google Gemini',    keyPlaceholder: 'AIza…',    keyPrefix: 'AIza'    },
+  anthropic: { label: 'Anthropic Claude', shortLabel: 'Claude', keyPlaceholder: 'sk-ant-…', keyPrefix: 'sk-ant-' },
+  openai:    { label: 'OpenAI',           shortLabel: 'GPT',    keyPlaceholder: 'sk-…',     keyPrefix: 'sk-'     },
+  gemini:    { label: 'Google Gemini',    shortLabel: 'Gemini', keyPlaceholder: 'AIza…',    keyPrefix: 'AIza'    },
 };
 
 /** All models for a provider, in declaration order. */
@@ -69,7 +83,7 @@ export const DEFAULT_SETTINGS = {
   // Per-provider model selections - defaults point at each provider's newest family.
   anthropicModel: 'claude-opus-4-7',
   openaiModel:    'gpt-5.4',
-  geminiModel:    'gemini-2.0-flash-exp',
+  geminiModel:    'gemini-2.5-flash',
 
   // Screenshot settings
   screenshotEnabled: true,

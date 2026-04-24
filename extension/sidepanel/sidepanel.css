@@ -58,6 +58,11 @@
   --text-xl:   19px;
   --text-2xl:  26px;
 
+  /* Input/output reading size - applies to chat bubbles, message input, and
+     assistant-rendered content (markdown, code, math). Sidebar chrome (header,
+     controls, privacy bar, settings UI) intentionally stays on --text-md. */
+  --text-io:   15px;
+
   --lh-tight:   1.3;
   --lh-body:    1.55;
   --lh-relaxed: 1.7;
@@ -379,7 +384,12 @@ button {
 /* Stylable dropdown via Chromium's Customizable Select API.
    Falls back to native picker on older Chromium versions. */
 @supports (appearance: base-select) {
-  .model-select { appearance: base-select; }
+  .model-select {
+    appearance: base-select;
+    /* base-select draws its own arrow - drop the SVG fallback so we don't stack both. */
+    background-image: none;
+    padding-right: 0;
+  }
 
   .model-select::picker(select) {
     appearance: base-select;
@@ -565,14 +575,18 @@ button {
 }
 .messages::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
-/* Welcome - typographic hero, no big icon block */
+/* Welcome - typographic hero, vertically centered when it's the only child of
+   .messages. The auto block-margin distributes free space equally above/below,
+   so the greeting sits in the middle of the panel on first open. When the user
+   sends a message, .welcome is removed and the feed reverts to normal top-down flow. */
 .welcome {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  padding: var(--space-5) var(--space-2) var(--space-4);
-  gap: var(--space-4);
+  align-items: center;
+  text-align: center;
+  margin: auto 0;
+  padding: var(--space-4) var(--space-2);
+  gap: var(--space-5);
 }
 
 .welcome-greeting {
@@ -586,6 +600,8 @@ button {
 }
 
 .welcome-greeting em {
+  display: block;
+  margin-top: 4px;
   font-family: var(--font-body);
   font-style: italic;
   font-weight: 450;
@@ -597,39 +613,41 @@ button {
   font-size: var(--text-md);
   line-height: var(--lh-body);
   color: var(--text-muted);
-  max-width: 36ch;
+  max-width: 46ch;
 }
 
+/* Suggestion cluster - pill chips wrapping in the centered hero. Left-aligned
+   rows felt orphaned in the middle; pills read as an intentional group. */
 .welcome-suggestions {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 8px;
+  max-width: 42ch;
   margin-top: var(--space-2);
 }
 
-/* Text-row suggestions - no borders. Hover uses extended-edge tint. */
 .suggestion-chip {
-  padding: 8px 10px;
-  margin: 0 -10px;
+  padding: 7px 14px;
   font-family: inherit;
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   font-weight: 500;
-  text-align: left;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
+  text-align: center;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   color: var(--text);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out);
 }
 
 .suggestion-chip::before {
-  content: '→';
   font-family: var(--font-display);
   color: var(--accent);
-  margin-right: var(--space-2);
+  margin-right: 6px;
   font-weight: 500;
   transition: transform var(--dur-med) var(--ease-out-quart);
   display: inline-block;
@@ -637,9 +655,59 @@ button {
 
 .suggestion-chip:hover {
   background: var(--accent-soft);
+  border-color: var(--accent-soft-bd);
   color: var(--accent-press);
 }
 .suggestion-chip:hover::before { transform: translateX(3px); }
+
+/* ── First-send morph (View Transitions API) ──────────────────────────────
+   On the user's first message the welcome hero collapses into the new user
+   bubble while each pill scatters on its own stagger. The welcome element and
+   the first .message-row--user share the "welcome-hero" name, so the browser
+   morphs the old rect (centered hero) into the new rect (small bubble at top).
+   Reduced-motion users skip the named transition - the welcome is just removed. */
+.welcome { view-transition-name: welcome-hero; }
+.suggestion-chip:nth-child(1) { view-transition-name: welcome-pill-1; }
+.suggestion-chip:nth-child(2) { view-transition-name: welcome-pill-2; }
+.suggestion-chip:nth-child(3) { view-transition-name: welcome-pill-3; }
+.suggestion-chip:nth-child(4) { view-transition-name: welcome-pill-4; }
+
+@keyframes welcome-dissolve {
+  to { opacity: 0; filter: blur(6px); transform: scale(0.94); }
+}
+@keyframes bubble-emerge {
+  from { opacity: 0; transform: scale(0.88) translateY(14px); }
+}
+@keyframes pill-scatter {
+  to { opacity: 0; transform: translateY(26px) scale(0.88); }
+}
+
+::view-transition-group(welcome-hero) {
+  animation-duration: 620ms;
+  animation-timing-function: var(--ease-out-quart);
+}
+::view-transition-old(welcome-hero) {
+  animation: welcome-dissolve 420ms var(--ease-out-quart) forwards;
+}
+::view-transition-new(welcome-hero) {
+  animation: bubble-emerge 560ms var(--ease-out-quart) 80ms backwards;
+}
+
+::view-transition-old(welcome-pill-1),
+::view-transition-old(welcome-pill-2),
+::view-transition-old(welcome-pill-3),
+::view-transition-old(welcome-pill-4) {
+  animation: pill-scatter 360ms var(--ease-out-quart) forwards;
+}
+::view-transition-old(welcome-pill-1) { animation-delay:   0ms; }
+::view-transition-old(welcome-pill-2) { animation-delay:  55ms; }
+::view-transition-old(welcome-pill-3) { animation-delay: 110ms; }
+::view-transition-old(welcome-pill-4) { animation-delay: 165ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome,
+  .suggestion-chip { view-transition-name: none; }
+}
 
 /* ── Message rows & bubbles ───────────────────────────────────────────────── */
 
@@ -662,7 +730,7 @@ button {
   max-width: 94%;
   word-break: break-word;
   line-height: var(--lh-body);
-  font-size: var(--text-md);
+  font-size: var(--text-io);
 }
 
 /* User - solid iris violet, paper text, no gradient */
@@ -728,11 +796,11 @@ button {
 .bubble--assistant h2:first-child,
 .bubble--assistant h3:first-child { margin-top: 0; }
 
-.bubble--assistant h1 { font-size: 19px; }
-.bubble--assistant h2 { font-size: 17px; }
-.bubble--assistant h3 { font-size: 15px; }
+.bubble--assistant h1 { font-size: 21px; }
+.bubble--assistant h2 { font-size: 18.5px; }
+.bubble--assistant h3 { font-size: 16.5px; }
 .bubble--assistant h4 {
-  font-size: var(--text-md);
+  font-size: var(--text-io);
   font-family: var(--font-body);
   font-weight: 600;
   color: var(--text-muted);
@@ -763,7 +831,7 @@ button {
 .bubble--assistant .inline-code,
 .bubble--assistant code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   background: var(--accent-soft);
   color: var(--accent-press);
   padding: 1px 6px;
@@ -845,7 +913,7 @@ button {
 
 .bubble--assistant .code-block code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
   color: oklch(0.92 0.015 258);
   background: none;
@@ -885,7 +953,7 @@ button {
   color: var(--text-muted);
   font-family: var(--font-body);
   font-style: italic;
-  font-size: 14px;
+  font-size: var(--text-io);
   line-height: var(--lh-relaxed);
 }
 .bubble--assistant .md-blockquote p,
@@ -923,7 +991,7 @@ button {
 .bubble--assistant table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
 .bubble--assistant th {
@@ -964,8 +1032,8 @@ button {
 
 .bubble--assistant .math-inline { display: inline; font-style: normal; }
 
-.bubble--assistant math            { font-size: 14px; }
-.bubble--assistant .math-block math { font-size: 15.5px; }
+.bubble--assistant math            { font-size: 15.5px; }
+.bubble--assistant .math-block math { font-size: 17.5px; }
 .bubble--assistant math mtd        { padding: 0.18em 0.45em; }
 .bubble--assistant math mtr + mtr > mtd { padding-top: 0.25em; }
 
@@ -1082,7 +1150,7 @@ button {
 
 .input-wrapper {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 6px;
   background: var(--surface-1);
   border: 1px solid var(--border);
@@ -1147,7 +1215,7 @@ button {
   background: transparent;
   resize: none;
   font-family: var(--font-body);
-  font-size: var(--text-md);
+  font-size: var(--text-io);
   line-height: var(--lh-body);
   color: var(--text);
   caret-color: var(--accent);
