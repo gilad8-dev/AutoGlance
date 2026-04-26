@@ -1,5 +1,6 @@
 /**
- * Privacy rules - decides whether screenshot capture is allowed for a given URL.
+ * Privacy rules - decides whether Glance is allowed to inspect a given URL.
+ * Governs all page-inspection tools (screenshot, DOM extraction, manifest build).
  *
  * The blocklist uses suffix-matching so 'chase.com' also blocks 'secure.chase.com'.
  * Users can add their own domains in settings.
@@ -38,7 +39,7 @@ export function getPrivacyStatus(url, blockedDomains = []) {
   if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('about:')) {
     return {
       blocked: true,
-      reason: 'Browser internal page - screenshots unavailable',
+      reason: 'Glance off – browser-internal page',
       category: 'internal',
     };
   }
@@ -46,7 +47,7 @@ export function getPrivacyStatus(url, blockedDomains = []) {
   if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('file://')) {
     return {
       blocked: true,
-      reason: 'Non-web page - screenshots unavailable',
+      reason: 'Glance off – non-web page',
       category: 'internal',
     };
   }
@@ -69,7 +70,7 @@ export function getPrivacyStatus(url, blockedDomains = []) {
   if (matchedDomain) {
     return {
       blocked: true,
-      reason: `Screenshots disabled on ${hostname} (privacy protection)`,
+      reason: `Glance off on ${hostname} (privacy blocklist)`,
       category: 'blocklist',
       matchedDomain,
     };

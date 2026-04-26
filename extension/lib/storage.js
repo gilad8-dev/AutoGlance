@@ -85,12 +85,43 @@ export const DEFAULT_SETTINGS = {
   openaiModel:    'gpt-5.4',
   geminiModel:    'gemini-2.5-flash',
 
-  // Screenshot settings
-  screenshotEnabled: true,
+  // Glance master gate. Replaces the older `screenshotEnabled` key (migrated in
+  // getSettings). When OFF, no page inspection happens at all - no manifest,
+  // no screenshot, no DOM extraction, no planner. Pure chat.
+  glanceEnabled: true,
+
+  // Screenshot tool settings (only consulted when Glance is ON and the planner
+  // chooses to gather a screenshot).
   screenshotQuality: 70,   // JPEG quality 1-100
   maxImageWidth: 1280,     // px, before sending to API
 
   blockedDomains: [],
+
+  // ── Context routing (Stage A scaffolding) ───────────────────────────────
+  // Hidden internal flag. Controls whether Glance-ON routes through the new
+  // LLM1 planner flow or the existing single-shot screenshot path. Stays
+  // false during MVP until telemetry validates the new flow on real traffic.
+  // Edit via chrome.storage.sync.set in DevTools to flip during dev.
+  _internalUsePlannerFlow: false,
+
+  // Planner (LLM1) provider/model. GPT-5-nano via the OpenAI API for MVP.
+  // Reuses the user's openaiApiKey (settings.openaiApiKey) when the planner
+  // is enabled - if no OpenAI key exists, the orchestrator falls back to the
+  // defaultPlannerFailurePackage rather than calling out.
+  plannerProvider: 'openai',
+  plannerModelId:  'gpt-5-nano',
+
+  // Maximum number of LLM2 fallback round-trips per turn.
+  plannerMaxFallbacks: 1,
+
+  // Package used when the planner returns invalid JSON or invalid context_types.
+  // Errs on the side of correctness over cost - DOM + screenshot is the safest
+  // superset of the MVP tool palette. Tunable.
+  defaultPlannerFailurePackage: ['viewport_dom', 'viewport_screenshot'],
+
+  // Telemetry chip below each assistant message in the side panel. Surfaces
+  // estimated-vs-actual cost, planner decision, fallback state, latency.
+  showTelemetry: true,
 };
 
 /** Returns the API key for the currently selected provider. */
@@ -110,11 +141,33 @@ export function getActiveModel(settings) {
   return getModelsByProvider(settings.provider)[0]?.id ?? '';
 }
 
-/** Load settings, merging stored values over defaults. */
+/**
+ * Load settings, merging stored values over defaults.
+ *
+ * Performs a one-shot migration from the legacy `screenshotEnabled` key to
+ * `glanceEnabled` on first read after upgrade. Existing users keep their
+ * prior toggle state under the new name, and the old key is removed so it
+ * can't drift out of sync with the new one.
+ */
 export async function getSettings() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(DEFAULT_SETTINGS, (result) => {
-      resolve(result);
+    chrome.storage.sync.get(null, (raw) => {
+      const stored = raw ?? {};
+
+      const needsMigration = ('screenshotEnabled' in stored) && !('glanceEnabled' in stored);
+      if (needsMigration) {
+        const migratedValue = stored.screenshotEnabled;
+        chrome.storage.sync.set({ glanceEnabled: migratedValue }, () => {
+          chrome.storage.sync.remove('screenshotEnabled', () => {
+            stored.glanceEnabled = migratedValue;
+            delete stored.screenshotEnabled;
+            resolve({ ...DEFAULT_SETTINGS, ...stored });
+          });
+        });
+        return;
+      }
+
+      resolve({ ...DEFAULT_SETTINGS, ...stored });
     });
   });
 }

@@ -5,7 +5,11 @@
  *  - Open the side panel when the toolbar icon is clicked
  *  - Capture visible tab screenshots (only possible from background context)
  *  - Retrieve page context (URL, title, selected text) via scripting API
+ *  - Build a facts-only page manifest for the planner (Stage A)
  */
+
+import { extractManifestInPage } from '../lib/page-manifest.js';
+import { extractViewportDomInPage } from '../lib/context-tools.js';
 
 // Open side panel automatically when the extension icon is clicked.
 // This lets the user toggle the panel without extra clicks.
@@ -21,6 +25,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case 'GET_PAGE_CONTEXT':
       handleGetPageContext(sendResponse);
+      return true;
+
+    case 'GET_PAGE_MANIFEST':
+      handleGetPageManifest(sendResponse);
+      return true;
+
+    case 'EXTRACT_VIEWPORT_DOM':
+      handleExtractViewportDom(sendResponse);
       return true;
 
     case 'GET_TAB_INFO':
@@ -86,6 +98,79 @@ async function handleGetPageContext(sendResponse) {
         timestamp: new Date().toISOString(),
       },
     });
+  } catch (err) {
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleGetPageManifest(sendResponse) {
+  try {
+    const tab = await getActiveTab();
+    if (!tab) {
+      sendResponse({ success: false, error: 'No active tab found' });
+      return;
+    }
+
+    let manifest = null;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: extractManifestInPage,
+      });
+      manifest = results?.[0]?.result ?? null;
+    } catch (err) {
+      // Scripting fails on chrome://, the Web Store, sandboxed PDF viewers,
+      // and similar restricted contexts. Surface the failure rather than
+      // silently producing a partial manifest.
+      sendResponse({
+        success: false,
+        error: err.message,
+        category: 'extraction-blocked',
+      });
+      return;
+    }
+
+    if (!manifest) {
+      sendResponse({ success: false, error: 'Manifest extraction returned no result' });
+      return;
+    }
+
+    sendResponse({ success: true, tabId: tab.id, manifest });
+  } catch (err) {
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+async function handleExtractViewportDom(sendResponse) {
+  try {
+    const tab = await getActiveTab();
+    if (!tab) {
+      sendResponse({ success: false, error: 'No active tab found' });
+      return;
+    }
+
+    let dom = null;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: extractViewportDomInPage,
+      });
+      dom = results?.[0]?.result ?? null;
+    } catch (err) {
+      sendResponse({
+        success: false,
+        error: err.message,
+        category: 'extraction-blocked',
+      });
+      return;
+    }
+
+    if (!dom) {
+      sendResponse({ success: false, error: 'DOM extraction returned no result' });
+      return;
+    }
+
+    sendResponse({ success: true, tabId: tab.id, dom });
   } catch (err) {
     sendResponse({ success: false, error: err.message });
   }

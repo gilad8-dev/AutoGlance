@@ -102,10 +102,11 @@ function populateForm(s) {
   $('openai-model').value    = s.openaiModel     ?? DEFAULT_SETTINGS.openaiModel;
   $('gemini-model').value    = s.geminiModel     ?? DEFAULT_SETTINGS.geminiModel;
 
-  $('screenshot-enabled').checked = s.screenshotEnabled ?? true;
+  $('glance-enabled').checked     = s.glanceEnabled     ?? true;
   $('screenshot-quality').value   = s.screenshotQuality ?? 70;
   $('quality-value').textContent  = `${s.screenshotQuality ?? 70}%`;
   $('max-width').value            = String(s.maxImageWidth  ?? 1280);
+  $('show-telemetry').checked     = s.showTelemetry     ?? true;
 
   $('blocked-domains').value = (s.blockedDomains ?? DEFAULT_SETTINGS.blockedDomains).join('\n');
 }
@@ -174,9 +175,10 @@ async function handleSave() {
       anthropicModel:   $('anthropic-model').value,
       openaiModel:      $('openai-model').value,
       geminiModel:      $('gemini-model').value,
-      screenshotEnabled: $('screenshot-enabled').checked,
+      glanceEnabled:     $('glance-enabled').checked,
       screenshotQuality: parseInt($('screenshot-quality').value, 10),
       maxImageWidth:     parseInt($('max-width').value, 10),
+      showTelemetry:     $('show-telemetry').checked,
       blockedDomains,
     };
 

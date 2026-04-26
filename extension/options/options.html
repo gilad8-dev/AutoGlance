@@ -99,20 +99,20 @@
         </div>
       </section>
 
-      <!-- ── Screenshot Settings ── -->
+      <!-- ── Glance & Visual Capture ── -->
       <section class="section">
-        <h2 class="section-title">Screenshot Capture</h2>
-        <p class="section-desc">AutoGlance can automatically attach a screenshot of your current tab with each message, giving the AI visual context about what you're seeing.</p>
+        <h2 class="section-title">Glance &amp; Visual Capture</h2>
+        <p class="section-desc">Glance is the master gate for browser awareness. When ON, AutoGlance can see the page you're on. When OFF, it acts as a plain chat with no page inspection at all.</p>
 
         <div class="field">
           <label class="toggle-row">
             <div>
-              <span class="label">Automatic screenshots</span>
-              <p class="field-hint">Capture the visible tab and send it with each message.</p>
+              <span class="label">Glance</span>
+              <p class="field-hint">When ON, the assistant can inspect the visible tab (manifest, screenshot, or DOM) to answer your question. When OFF, no page data is collected or sent.</p>
             </div>
             <div class="toggle-wrapper">
-              <input type="checkbox" id="screenshot-enabled" class="toggle-input" />
-              <label for="screenshot-enabled" class="toggle-track"><span class="toggle-thumb"></span></label>
+              <input type="checkbox" id="glance-enabled" class="toggle-input" />
+              <label for="glance-enabled" class="toggle-track"><span class="toggle-thumb"></span></label>
             </div>
           </label>
         </div>
@@ -135,17 +135,30 @@
           </select>
           <p class="field-hint">Screenshots wider than this will be resized before sending.</p>
         </div>
+
+        <div class="field">
+          <label class="toggle-row">
+            <div>
+              <span class="label">Telemetry chip</span>
+              <p class="field-hint">Show a per-message chip with cost, latency, and the planner's decision. Local only - never sent anywhere.</p>
+            </div>
+            <div class="toggle-wrapper">
+              <input type="checkbox" id="show-telemetry" class="toggle-input" />
+              <label for="show-telemetry" class="toggle-track"><span class="toggle-thumb"></span></label>
+            </div>
+          </label>
+        </div>
       </section>
 
       <!-- ── Privacy / Blocklist ── -->
       <section class="section">
         <h2 class="section-title">Privacy &amp; Domain Blocklist</h2>
-        <p class="section-desc">Screenshots are automatically disabled on these domains. One domain per line - subdomains match automatically (<code>chase.com</code> also blocks <code>secure.chase.com</code>).</p>
+        <p class="section-desc">Glance is automatically disabled on these domains. One domain per line - subdomains match automatically (<code>chase.com</code> also blocks <code>secure.chase.com</code>).</p>
 
         <div class="field">
           <label for="blocked-domains" class="label">Blocked Domains</label>
           <textarea id="blocked-domains" class="input textarea" rows="10" spellcheck="false"></textarea>
-          <p class="field-hint">AutoGlance sends text-only messages on these domains - never screenshots.</p>
+          <p class="field-hint">On these domains AutoGlance won't inspect or capture the page - text-only messages.</p>
         </div>
 
         <div class="domain-actions">

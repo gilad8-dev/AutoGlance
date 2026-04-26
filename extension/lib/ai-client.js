@@ -20,6 +20,8 @@ const TIMEOUT_MS = 60_000;
  * @param {string} opts.userText      - text of the current user turn
  * @param {string|null} opts.screenshot - base64 JPEG or null
  * @param {function} opts.onChunk     - called with each text chunk string
+ * @param {function} [opts.onUsage]   - called once at stream end with normalized
+ *                                      {inputTokens, outputTokens}. Provider-aware.
  * @param {AbortSignal} [opts.signal]
  * @returns {Promise<string>} full accumulated response text
  */
@@ -43,7 +45,7 @@ export async function streamMessage(opts) {
 
 // ── Anthropic ─────────────────────────────────────────────────────────────
 
-async function streamAnthropic({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, signal }) {
+async function streamAnthropic({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, onUsage, signal }) {
   const messages = [
     ...history.map((m) => ({ role: m.role, content: m.textContent })),
     {
@@ -69,16 +71,29 @@ async function streamAnthropic({ apiKey, model, systemPrompt, history, userText,
     signal,
   });
 
-  return readSSE(response.body, (event) => {
+  // Anthropic emits input_tokens in message_start and cumulative output_tokens
+  // in message_delta events. Aggregate across the stream and fire onUsage once.
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  const fullText = await readSSE(response.body, (event) => {
+    if (event.type === 'message_start' && event.message?.usage) {
+      usage.inputTokens = event.message.usage.input_tokens ?? usage.inputTokens;
+    }
+    if (event.type === 'message_delta' && event.usage) {
+      usage.outputTokens = event.usage.output_tokens ?? usage.outputTokens;
+    }
     if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
       return event.delta.text;
     }
   }, onChunk);
+
+  if (onUsage && (usage.inputTokens || usage.outputTokens)) onUsage(usage);
+  return fullText;
 }
 
 // ── OpenAI ────────────────────────────────────────────────────────────────
 
-async function streamOpenAI({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, signal }) {
+async function streamOpenAI({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, onUsage, signal }) {
   const messages = [
     { role: 'system', content: systemPrompt },
     ...history.map((m) => ({
@@ -102,19 +117,29 @@ async function streamOpenAI({ apiKey, model, systemPrompt, history, userText, sc
       'content-type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, stream: true, messages }),
+    // stream_options: include_usage opts in to a final chunk carrying token totals.
+    body: JSON.stringify({ model, stream: true, messages, stream_options: { include_usage: true } }),
     signal,
   });
 
-  return readSSE(response.body, (event) => {
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  const fullText = await readSSE(response.body, (event) => {
+    if (event.usage) {
+      usage.inputTokens  = event.usage.prompt_tokens     ?? usage.inputTokens;
+      usage.outputTokens = event.usage.completion_tokens ?? usage.outputTokens;
+    }
     // OpenAI sends [DONE] as a string, not JSON - the SSE reader handles that
     return event.choices?.[0]?.delta?.content ?? null;
   }, onChunk);
+
+  if (onUsage && (usage.inputTokens || usage.outputTokens)) onUsage(usage);
+  return fullText;
 }
 
 // ── Google Gemini ─────────────────────────────────────────────────────────
 
-async function streamGemini({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, signal }) {
+async function streamGemini({ apiKey, model, systemPrompt, history, userText, screenshot, onChunk, onUsage, signal }) {
   // Gemini uses 'model' for the assistant role
   const contents = [
     ...history.map((m) => ({
@@ -143,10 +168,19 @@ async function streamGemini({ apiKey, model, systemPrompt, history, userText, sc
     signal,
   });
 
-  return readSSE(response.body, (event) => {
+  const usage = { inputTokens: 0, outputTokens: 0 };
+
+  const fullText = await readSSE(response.body, (event) => {
+    if (event.usageMetadata) {
+      usage.inputTokens  = event.usageMetadata.promptTokenCount     ?? usage.inputTokens;
+      usage.outputTokens = event.usageMetadata.candidatesTokenCount ?? usage.outputTokens;
+    }
     // Gemini SSE: {candidates:[{content:{parts:[{text:"..."}]}}]}
     return event.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
   }, onChunk);
+
+  if (onUsage && (usage.inputTokens || usage.outputTokens)) onUsage(usage);
+  return fullText;
 }
 
 // ── Shared SSE Reader ─────────────────────────────────────────────────────
