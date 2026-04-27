@@ -20,7 +20,7 @@ import { estimateOldFlowBaseline, buildCostMenu, estimateTextTokens, getPricing 
 import { startTurn as telemetryStart, update as telemetryUpdate, markEnd as telemetryMarkEnd, finalize as telemetryFinalize, costFromUsage } from '../lib/telemetry.js';
 import { planContext, ALLOWED_CONTEXT_TYPES } from '../lib/planner.js';
 import { gatherTools } from '../lib/context-tools.js';
-import { askLLM2, degradeToProvideAnswer } from '../lib/llm2-protocol.js';
+import { askLLM2, degradeToProvideAnswer, buildBrowserContextText } from '../lib/llm2-protocol.js';
 
 // ── State ─────────────────────────────────────────────────────────────────
 
@@ -228,7 +228,7 @@ async function handleSend() {
     // useNewFlow requires all three. Otherwise we run the legacy single-shot
     // screenshot path, which is unchanged from prior behavior.
     const glanceCanInspect = settings.glanceEnabled && privacyStatus.state === 'enabled';
-    const useNewFlow       = glanceCanInspect && !!settings._internalUsePlannerFlow;
+    let useNewFlow         = glanceCanInspect && !!settings._internalUsePlannerFlow;
 
     // Page inspection: build manifest whenever Glance can inspect (used by
     // both telemetry and the planner). Capture screenshot + page-context only
@@ -239,6 +239,11 @@ async function handleSend() {
     let manifestError  = null;
     if (glanceCanInspect) {
       ({ manifest, error: manifestError } = await buildManifest());
+      // Hard gate: revert to legacy flow for pages where DOM is unreliable
+      // (PDFs, canvas-dominant pages). Change signals are blind there, DOM
+      // tools are useless, and the planner always arrives at "screenshot" —
+      // so the new architecture adds overhead with zero routing benefit.
+      if (useNewFlow && manifest?.domReliable === false) useNewFlow = false;
       if (!useNewFlow) {
         screenshot = await captureScreenshot();
         const ctxResult = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
@@ -341,6 +346,24 @@ async function handleSend() {
       // injected text via onChunk, or the streaming path may have completed).
       bubbleEl.classList.remove('loading-cursor');
       const turnEndedAt = performance.now();
+
+      // Retroactively enrich the user history entry with the browser-context
+      // block that was actually sent to LLM2 this turn. This ensures that on
+      // the next turn, LLM2 sees the DOM text in history even when the planner
+      // picks "none" — without this, "none" means zero context because the
+      // enriched message was never stored back into conversationHistory.
+      // Screenshots are excluded: they're never replayed in history to save tokens.
+      const sentCtxText = buildBrowserContextText(result.finalPackage);
+      if (sentCtxText) {
+        const userEntry = conversationHistory[conversationHistory.length - 1];
+        const summaryPart = result.finalPackage?.summary && result.finalPackage.summary !== 'none'
+          ? `(Browser context summary: ${result.finalPackage.summary})`
+          : '';
+        const enrichedParts = [sentCtxText];
+        if (summaryPart) enrichedParts.push(summaryPart);
+        enrichedParts.push(text);
+        userEntry.textContent = enrichedParts.join('\n\n');
+      }
 
       conversationHistory.push({ role: 'assistant', textContent: fullText });
 
@@ -592,6 +615,15 @@ async function runPlannerFlow({
 
   signal?.throwIfAborted?.();
 
+  // When the planner chose "none" and prior turns exist, LLM2 cannot see the
+  // change signals that justified the choice. Without this note it reasons
+  // "no context was provided → maybe the page changed → request screenshot."
+  // Telling it the planner's conclusion lets it trust conversation history.
+  const isPureNone = planner.context_types.every((t) => t === 'none');
+  const llm2UserPrompt = (isPureNone && conversationHasPriorTurns)
+    ? `${userPrompt}\n\n[AutoGlance: page unchanged since last turn — answer from conversation history, no new context needed]`
+    : userPrompt;
+
   // 3. Round 1 LLM2.
   const round1StartedAt = performance.now();
   const action1 = await askLLM2({
@@ -600,7 +632,7 @@ async function runPlannerFlow({
     model:        llm2Model,
     systemPrompt: SYSTEM_PROMPT,
     history,
-    userPrompt,
+    userPrompt:   llm2UserPrompt,
     package:      initialPackage,
     signal,
     onChunk,
@@ -1065,6 +1097,14 @@ function buildDrawerInnerHtml(record) {
                   : deltaCost >= 0      ? `+${formatCost(deltaCost)}`
                   :                       `-${formatCost(-deltaCost)}`;
 
+  const deltaPct = totals.deltaVsOldFlowPercent;
+  const deltaPctClass = deltaPct == null ? 'telemetry-row__value--muted'
+                      : deltaPct >= 0    ? 'telemetry-row__value--positive'
+                      :                    'telemetry-row__value--negative';
+  const deltaPctText = deltaPct == null ? '—'
+                     : deltaPct >= 0    ? `${deltaPct.toFixed(1)}% cheaper`
+                     :                    `${Math.abs(deltaPct).toFixed(1)}% more expensive`;
+
   const flowPath = buildFlowPath(record);
   const io = record.io ?? null;
 
@@ -1137,6 +1177,10 @@ function buildDrawerInnerHtml(record) {
       <div class="telemetry-row">
         <span class="telemetry-row__label">Δ vs old flow</span>
         <span class="telemetry-row__value ${deltaClass}">${escTel(deltaText)}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">% vs old flow</span>
+        <span class="telemetry-row__value ${deltaPctClass}">${escTel(deltaPctText)}</span>
       </div>
       ${planner ? '' : '<div class="telemetry-section__notes">Calibration mode — planner not running. New flow lights up here once enabled.</div>'}
     </div>

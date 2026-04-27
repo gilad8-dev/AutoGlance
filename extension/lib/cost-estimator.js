@@ -15,18 +15,32 @@
 import { getModelById } from './storage.js';
 
 /**
- * USD per 1M tokens, by model id. Anthropic only in MVP - extend in Stage E.
- * Numbers reflect Anthropic's published pricing tiers; verify before relying
- * on absolute amounts. Routing decisions only need the relative ordering.
+ * USD per 1M tokens, by model id.
+ * Numbers reflect published pricing tiers; verify before relying on absolute
+ * amounts. Routing decisions only need relative ordering — ±25% is fine.
+ * Telemetry compares estimated vs actual on every turn so drift surfaces quickly.
  */
 export const PRICING = {
-  'claude-opus-4-7':   { inUSDPer1M: 15,   outUSDPer1M: 75   },
-  'claude-sonnet-4-6': { inUSDPer1M:  3,   outUSDPer1M: 15   },
-  'claude-opus-4-6':   { inUSDPer1M: 15,   outUSDPer1M: 75   },
-  'claude-haiku-4-5':  { inUSDPer1M:  1,   outUSDPer1M:  5   },
-  // Planner (LLM1) - placeholder rates; verify against current OpenAI pricing.
-  // Numbers are tiny on purpose for nano-tier; telemetry will surface drift.
-  'gpt-5-nano-2025-08-07': { inUSDPer1M: 0.05, outUSDPer1M: 0.40 },
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  'claude-opus-4-7':   { inUSDPer1M:  5,    outUSDPer1M: 25   },
+  'claude-opus-4-6':   { inUSDPer1M:  5,    outUSDPer1M: 25   },
+  'claude-sonnet-4-6': { inUSDPer1M:  3,    outUSDPer1M: 15   },
+  'claude-haiku-4-5':  { inUSDPer1M:  1,    outUSDPer1M:  5   },
+
+  // ── OpenAI ─────────────────────────────────────────────────────────────────
+  'gpt-5-nano-2025-08-07': { inUSDPer1M:  0.05, outUSDPer1M:  0.40 },
+  'gpt-5.5':               { inUSDPer1M:  5,    outUSDPer1M: 30    },
+  'gpt-5.4':               { inUSDPer1M:  2.50, outUSDPer1M: 15    },
+  'gpt-5.4-mini':          { inUSDPer1M:  0.75, outUSDPer1M:  4.50 },
+  'gpt-5.4-nano':          { inUSDPer1M:  0.20, outUSDPer1M:  1.25 },
+
+  // ── Google Gemini ──────────────────────────────────────────────────────────
+  'gemini-3.1-pro-preview':        { inUSDPer1M:  2,    outUSDPer1M: 12   },
+  'gemini-3.1-flash-lite-preview': { inUSDPer1M:  0.25, outUSDPer1M:  1.50 },
+  'gemini-3-flash-preview':        { inUSDPer1M:  0.50, outUSDPer1M:  3    },
+  'gemini-2.5-pro':                { inUSDPer1M:  1.25, outUSDPer1M: 10   },
+  'gemini-2.5-flash':              { inUSDPer1M:  0.10, outUSDPer1M:  0.40 },
+  'gemini-2.5-flash-lite':         { inUSDPer1M:  0.10, outUSDPer1M:  0.40 },
 };
 
 /**

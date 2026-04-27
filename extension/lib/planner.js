@@ -39,7 +39,7 @@ const ALLOWED_RISK = ['low', 'medium', 'high'];
  * invalidates historical comparisons. Telemetry stamps every decision with
  * this so a/b/c versioned tuning stays meaningful.
  */
-export const PLANNER_PROMPT_VERSION = 'v3';
+export const PLANNER_PROMPT_VERSION = 'v4';
 
 /**
  * System prompt - short and rule-driven. The decision rules echo the
@@ -71,6 +71,10 @@ const PLANNER_SYSTEM_PROMPT = [
   `   b. all change_signals are false.`,
   `   c. The prompt does not signal that the user is asking about NEW or DIFFERENT`,
   `      content not yet seen by the answering model.`,
+  `   d. page_manifest.dom_reliable is true. If false (PDF viewer, canvas-dominant`,
+  `      page, or similar), change signals are blind to visual content changes —`,
+  `      scrolling to a new PDF page leaves all signals false. "none" is unsafe;`,
+  `      gather a screenshot instead.`,
   ``,
   `   Core insight: if the page has not changed (all change_signals false), the`,
   `   answering model already has that page's content in its conversation memory`,
@@ -88,6 +92,7 @@ const PLANNER_SYSTEM_PROMPT = [
   `   - Prompts explicitly requesting new/different content: "solve the OTHER formula",`,
   `     "look at this new one", "what about the chart on the next page?".`,
   `   - First messages (no prior context exists).`,
+  `   - Pages with dom_reliable: false (condition d above).`,
   ``,
   `4. Prefer viewport_dom for tasks that depend on visible text, summarization,`,
   `   structured data, or links.`,
@@ -184,6 +189,7 @@ export async function planContext(args) {
     availableTypes: costMenu.map((o) => o.type),
     conversationHasPriorTurns,
     changeSignals,
+    manifest,
   });
 
   if (!validated.ok) {
@@ -419,6 +425,13 @@ function validateDecision(text, ctx) {
 function isNoneAllowed_V1Strict(ctx) {
   if (!ctx.conversationHasPriorTurns) {
     return { allowed: false, reason: '"none" not allowed on first message' };
+  }
+  // When DOM is unreliable (PDF viewer, canvas-dominant page), change signals
+  // are blind to visual content changes. Scrolling a PDF leaves scrollY=0 and
+  // visibleDomHash unchanged, so all signals appear false even when the user
+  // is now looking at completely different content. "none" is unsafe.
+  if (ctx.manifest?.domReliable === false) {
+    return { allowed: false, reason: '"none" not allowed when dom_reliable is false — change signals cannot detect visual content changes' };
   }
   const signals = ctx.changeSignals ?? {};
   const flaggedKeys = [

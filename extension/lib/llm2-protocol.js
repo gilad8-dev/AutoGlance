@@ -416,7 +416,7 @@ function forceAnswer(out, placeholder) {
  * the model can distinguish trusted system instructions from untrusted page
  * content. Image blocks travel separately as native image content.
  */
-function buildBrowserContextText(pkg) {
+export function buildBrowserContextText(pkg) {
   if (!pkg || !pkg.textBlocks?.length) return '';
   const parts = ['<browser-context>'];
   for (const tb of pkg.textBlocks) {

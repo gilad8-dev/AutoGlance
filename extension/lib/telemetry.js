@@ -93,6 +93,9 @@ export function finalize(turnId) {
     deltaVsOldFlow: (baselineCost != null && actualCost != null)
       ? baselineCost - actualCost
       : null,
+    deltaVsOldFlowPercent: (baselineCost != null && baselineCost > 0 && actualCost != null)
+      ? ((baselineCost - actualCost) / baselineCost) * 100
+      : null,
     deltaVsEstPercent: (estCost != null && actualCost != null && estCost > 0)
       ? ((actualCost - estCost) / estCost) * 100
       : null,
