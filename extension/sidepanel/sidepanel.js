@@ -49,6 +49,7 @@ const sendBtn          = $('send-btn');
 const clearBtn         = $('clear-btn');
 const settingsBtn      = $('settings-btn');
 const glanceToggle     = $('glance-toggle');
+const plannerToggle    = $('planner-toggle');
 const inputArea        = document.querySelector('.input-area');
 const privacyBar       = $('privacy-bar');
 const privacyLabel     = $('privacy-label');
@@ -66,6 +67,7 @@ async function init() {
   renderControlsBar();
   updatePrivacyUI();
   updateGlanceToggleUI();
+  updatePlannerToggleUI();
   checkApiKeyWarning();
 
   onSettingsChanged((changed) => {
@@ -73,6 +75,7 @@ async function init() {
     renderControlsBar();
     updatePrivacyUI();
     updateGlanceToggleUI();
+    updatePlannerToggleUI();
     checkApiKeyWarning();
   });
 }
@@ -101,6 +104,7 @@ function bindEvents() {
   });
 
   glanceToggle.addEventListener('click', toggleGlance);
+  plannerToggle.addEventListener('click', togglePlannerFlow);
 
   // Provider chips - click switches provider, or opens Settings if no key.
   providerToggle.querySelectorAll('.provider-chip').forEach((chip) => {
@@ -229,11 +233,12 @@ async function handleSend() {
     // Page inspection: build manifest whenever Glance can inspect (used by
     // both telemetry and the planner). Capture screenshot + page-context only
     // for the legacy flow - the planner picks its own tools.
-    let screenshot  = null;
-    let pageContext = null;
-    let manifest    = null;
+    let screenshot     = null;
+    let pageContext    = null;
+    let manifest       = null;
+    let manifestError  = null;
     if (glanceCanInspect) {
-      manifest = await buildManifest();
+      ({ manifest, error: manifestError } = await buildManifest());
       if (!useNewFlow) {
         screenshot = await captureScreenshot();
         const ctxResult = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
@@ -265,7 +270,7 @@ async function handleSend() {
         })
       : null;
 
-    const telemetryEnabled = settings.showTelemetry && glanceCanInspect && manifest;
+    const telemetryEnabled = settings.showTelemetry && glanceCanInspect;
     const turnId = telemetryEnabled
       ? telemetryStart({
           flow:            useNewFlow ? 'planner' : 'legacy',
@@ -274,6 +279,7 @@ async function handleSend() {
           plannerProvider: useNewFlow ? settings.plannerProvider : null,
           plannerModel:    useNewFlow ? settings.plannerModelId   : null,
           manifestSummary: summarizeManifest(manifest),
+          manifestError,
           changeSignals,
           oldFlowBaseline: oldFlowBaseline ? {
             estTokens:        oldFlowBaseline.estTokens,
@@ -367,15 +373,30 @@ async function handleSend() {
         const llm2FirstByteMs        = firstByteAt ? Math.round(firstByteAt - turnStartedAt) : null;
 
         telemetryUpdate(turnId, {
+          io: {
+            plannerUserPrompt: text,
+            plannerCostMenu:   result.costMenu,
+            r1PackageTypes:    result.initialPackage?.types    ?? [],
+            r1PackageText:     previewPackageText(result.initialPackage),
+            r1ImageCount:      result.initialPackage?.images?.length ?? 0,
+            r1RawResponse:     result.llm2Round1?.action?.rawResponse ?? null,
+            r1Action:          result.llm2Round1?.action?.action       ?? null,
+            r1RequestedTypes:  result.llm2Round1?.action?.requested_context_types ?? null,
+            r1RequestReason:   result.llm2Round1?.action?.reason       ?? null,
+            r2PackageTypes:    result.requestedPackage?.types  ?? null,
+            r2PackageText:     previewPackageText(result.requestedPackage),
+            r2ImageCount:      result.requestedPackage?.images?.length ?? null,
+            r2RawResponse:     result.llm2Round2?.action?.rawResponse ?? null,
+            r2Action:          result.llm2Round2?.action?.action       ?? null,
+          },
           planner: {
             promptVersion:      planner.promptVersion,
             rawResponse:        planner.rawResponse,
             validatedDecision:  planner.validatedDecision,
             finalUsedDecision: {
-              context_types:          planner.context_types,
-              reason:                 planner.reason,
-              fallback_risk:          planner.fallback_risk,
-              estimated_package_cost: planner.estimated_package_cost,
+              context_types: planner.context_types,
+              reason:        planner.reason,
+              fallback_risk: planner.fallback_risk,
             },
             parseOk:            planner.parseOk,
             source:             planner.source,
@@ -586,11 +607,12 @@ async function runPlannerFlow({
   });
   const round1EndedAt = performance.now();
 
-  let finalAction       = action1;
-  let finalPackage      = initialPackage;
-  let fallbackUsed      = false;
-  let fallbackRequested = null;
-  let llm2Round2        = null;
+  let finalAction        = action1;
+  let finalPackage       = initialPackage;
+  let fallbackUsed       = false;
+  let fallbackRequested  = null;
+  let llm2Round2         = null;
+  let requestedPackage   = null;
 
   const maxFallbacks = settings.plannerMaxFallbacks ?? 1;
 
@@ -606,7 +628,7 @@ async function runPlannerFlow({
 
     // Gather additional tools and merge with the initial package so LLM2 sees
     // both. Tool dedup inside gatherTools means re-requested types are no-ops.
-    const requestedPackage = await gatherTools(action1.requested_context_types, ctx);
+    requestedPackage = await gatherTools(action1.requested_context_types, ctx);
     finalPackage = combinePackages([initialPackage, requestedPackage]);
 
     signal?.throwIfAborted?.();
@@ -650,7 +672,9 @@ async function runPlannerFlow({
 
   return {
     planner,
+    costMenu,
     initialPackage,
+    requestedPackage,
     finalPackage,
     finalAction,
     fallbackUsed,
@@ -760,6 +784,18 @@ function updateGlanceToggleUI() {
   glanceToggle.classList.toggle('inactive', !settings.glanceEnabled);
   glanceToggle.setAttribute('aria-pressed', String(settings.glanceEnabled));
   glanceToggle.title = settings.glanceEnabled ? 'Glance: ON – click to disable' : 'Glance: OFF – click to enable';
+}
+
+async function togglePlannerFlow() {
+  settings._internalUsePlannerFlow = !settings._internalUsePlannerFlow;
+  await saveSettings({ _internalUsePlannerFlow: settings._internalUsePlannerFlow });
+  updatePlannerToggleUI();
+}
+
+function updatePlannerToggleUI() {
+  const on = !!settings._internalUsePlannerFlow;
+  plannerToggle.setAttribute('aria-pressed', String(on));
+  plannerToggle.title = on ? 'Planner: ON – smart context routing' : 'Planner: OFF – legacy screenshot';
 }
 
 // ── Controls Bar (provider + model) ───────────────────────────────────────
@@ -1007,8 +1043,9 @@ function buildDrawerInnerHtml(record) {
   const llm2      = record.llm2    ?? {};
   const planner   = record.planner ?? null;
   const pkg       = record.package ?? {};
-  const summary   = record.manifestSummary ?? null;
-  const signals   = record.changeSignals ?? null;
+  const summary      = record.manifestSummary ?? null;
+  const manifestErr  = record.manifestError  ?? null;
+  const signals      = record.changeSignals ?? null;
 
   const trueSignals = signals
     ? Object.entries(signals).filter(([, v]) => v === true).map(([k]) => k)
@@ -1028,7 +1065,65 @@ function buildDrawerInnerHtml(record) {
                   : deltaCost >= 0      ? `+${formatCost(deltaCost)}`
                   :                       `-${formatCost(-deltaCost)}`;
 
+  const flowPath = buildFlowPath(record);
+  const io = record.io ?? null;
+
+  // ── Build I/O panel content strings (plain text, escaped when inserted) ──
+  let plannerInputText = null;
+  if (io) {
+    const costLines = (io.plannerCostMenu ?? []).map((o) => {
+      const tok  = o.est_tokens != null ? `${o.est_tokens} tok` : '— tok';
+      const cost = o.est_cost_usd != null ? ` ($${o.est_cost_usd.toFixed(4)})` : '';
+      return `  ${o.type.padEnd(22)}${tok}${cost}`;
+    }).join('\n');
+    const activeSignals = Object.entries(record.changeSignals ?? {})
+      .filter(([k, v]) => v === true && k !== 'is_first_message' && k !== 'ms_since_last_turn')
+      .map(([k]) => k);
+    const ms = summary; // manifestSummary
+    const manifestLines = ms ? [
+      `  url:                  ${ms.url ?? '—'}`,
+      `  title:                ${ms.title ?? '—'}`,
+      `  viewport:             ${ms.viewport ?? '—'}`,
+      `  scroll_y:             ${ms.scrollY ?? 0}`,
+      `  visible_text_length:  ${ms.visibleTextLength ?? 0}`,
+      `  full_text_length:     ${ms.fullTextLengthEstimate ?? 0}`,
+      `  visible_images:       ${ms.visibleImageCount ?? 0}`,
+      `  flags:                ${ms.flags?.length ? ms.flags.join(', ') : 'none'}`,
+    ].join('\n') : '  (not available)';
+
+    plannerInputText = [
+      `User prompt: "${(io.plannerUserPrompt ?? '').slice(0, 300)}"`,
+      ``,
+      `Page manifest:`,
+      manifestLines,
+      ``,
+      `Cost options:`,
+      costLines || '  (none)',
+      ``,
+      `Change signals: ${activeSignals.length ? activeSignals.join(', ') : 'none'}`,
+      `Has prior turns: ${record.changeSignals?.is_first_message === true ? 'no (first message)' : 'yes'}`,
+    ].join('\n');
+  }
+
+  const r1ContextText = io
+    ? buildContextPanelText(io.r1PackageTypes, io.r1PackageText, io.r1ImageCount)
+    : null;
+  const r1ResponseText = io
+    ? buildResponsePanelText(io.r1Action, io.r1RawResponse, io.r1RequestedTypes, io.r1RequestReason)
+    : null;
+  const r2ContextText = (io && io.r2PackageTypes)
+    ? buildContextPanelText(io.r2PackageTypes, io.r2PackageText, io.r2ImageCount)
+    : null;
+  const r2ResponseText = (io && io.r2Action)
+    ? buildResponsePanelText(io.r2Action, io.r2RawResponse, null, null)
+    : null;
+
   return `
+    <div class="telemetry-section">
+      <div class="telemetry-section__title">Flow</div>
+      <div class="telemetry-row telemetry-row--flow">${escTel(flowPath)}</div>
+    </div>
+
     <div class="telemetry-section">
       <div class="telemetry-section__title">Cost</div>
       <div class="telemetry-row">
@@ -1078,6 +1173,11 @@ function buildDrawerInnerHtml(record) {
           ? `${summary.viewport}, scrollY ${summary.scrollY}, vText ${summary.visibleTextLength}, full ${summary.fullTextLengthEstimate}`
           : '—')}</span>
       </div>
+      ${manifestErr ? `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Manifest error</span>
+        <span class="telemetry-row__value telemetry-row__value--negative">${escTel(manifestErr)}</span>
+      </div>` : ''}
       <div class="telemetry-row">
         <span class="telemetry-row__label">Flags</span>
         <span class="telemetry-row__value">${escTel(flagText)}</span>
@@ -1097,7 +1197,7 @@ function buildDrawerInnerHtml(record) {
       ${planner ? `
       <div class="telemetry-row">
         <span class="telemetry-row__label">Planner reason</span>
-        <span class="telemetry-row__value">${escTel(planner.decision?.reason ?? '—')}</span>
+        <span class="telemetry-row__value">${escTel(planner.finalUsedDecision?.reason ?? '—')}</span>
       </div>` : ''}
     </div>
 
@@ -1121,6 +1221,51 @@ function buildDrawerInnerHtml(record) {
         <span class="telemetry-row__value">${escTel(`${planner.latencyMs}ms`)}</span>
       </div>` : ''}
     </div>
+
+    ${io ? `
+    <div class="telemetry-section telemetry-section--io">
+      <div class="telemetry-section__title">I/O</div>
+
+      ${plannerInputText != null ? `
+      <details class="telemetry-io">
+        <summary>Planner (LLM1) input</summary>
+        <pre class="telemetry-io-content">${escTel(plannerInputText)}</pre>
+      </details>` : ''}
+
+      ${planner != null ? `
+      <details class="telemetry-io">
+        <summary>Planner (LLM1) output</summary>
+        <pre class="telemetry-io-content">${escTel(
+          planner.rawResponse
+            || `[no raw response captured]\nsource: ${planner.source ?? '—'}\nreason: ${planner.finalUsedDecision?.reason ?? '—'}`
+        )}</pre>
+      </details>` : ''}
+
+      ${r1ContextText != null ? `
+      <details class="telemetry-io">
+        <summary>Context gathered — round 1</summary>
+        <pre class="telemetry-io-content">${escTel(r1ContextText)}</pre>
+      </details>` : ''}
+
+      ${r1ResponseText != null ? `
+      <details class="telemetry-io">
+        <summary>LLM2 round 1 response</summary>
+        <pre class="telemetry-io-content">${escTel(r1ResponseText)}</pre>
+      </details>` : ''}
+
+      ${r2ContextText != null ? `
+      <details class="telemetry-io">
+        <summary>Context gathered — round 2 (fallback)</summary>
+        <pre class="telemetry-io-content">${escTel(r2ContextText)}</pre>
+      </details>` : ''}
+
+      ${r2ResponseText != null ? `
+      <details class="telemetry-io">
+        <summary>LLM2 round 2 response (fallback)</summary>
+        <pre class="telemetry-io-content">${escTel(r2ResponseText)}</pre>
+      </details>` : ''}
+    </div>
+    ` : ''}
   `;
 }
 
@@ -1146,6 +1291,59 @@ function summarizeManifest(m) {
     visibleImageCount:      m.visibleImageCount,
     flags,
   };
+}
+
+function previewPackageText(pkg, cap = 2000) {
+  if (!pkg?.textBlocks?.length) return null;
+  return pkg.textBlocks.map((tb) => {
+    const content = tb.content ?? '';
+    const preview = content.slice(0, cap);
+    const over    = content.length > cap;
+    return `[${tb.name}${(tb.truncated || over) ? ' — truncated' : ''}]\n${preview}${over ? '\n…' : ''}`;
+  }).join('\n\n');
+}
+
+function buildFlowPath(record) {
+  const io = record.io ?? {};
+  if (record.flow !== 'planner') {
+    const tools = (record.package?.chosenTools ?? []).join(' + ') || 'none';
+    return `legacy → ${tools} → LLM2`;
+  }
+  const r1Types  = (io.r1PackageTypes ?? []).join(' + ') || 'none';
+  const r1Action = io.r1Action;
+  let path = `LLM1 → gather: ${r1Types} → LLM2 r1`;
+  if (r1Action === 'provide_answer') {
+    path += ' → answer';
+  } else if (r1Action === 'request_more_context') {
+    const r2Types  = (io.r2PackageTypes ?? []).join(' + ') || 'none';
+    const r2Action = io.r2Action;
+    path += ` → request_more_context → gather: ${r2Types} → LLM2 r2`;
+    path += r2Action === 'provide_answer' ? ' → answer' : ' → degrade';
+  } else {
+    path += r1Action ? ` → ${r1Action}` : '';
+  }
+  return path;
+}
+
+function buildContextPanelText(types, textPreview, imageCount) {
+  const lines = [];
+  lines.push(`Types: ${(types ?? []).join(', ') || 'none'}`);
+  if (imageCount) lines.push(`Images: ${imageCount} screenshot(s) (base64 not stored)`);
+  if (textPreview) { lines.push(''); lines.push(textPreview); }
+  return lines.join('\n');
+}
+
+function buildResponsePanelText(action, rawResponse, requestedTypes, requestReason) {
+  const lines = [];
+  lines.push(`Action: ${action ?? '—'}`);
+  if (requestedTypes?.length) lines.push(`Requested: ${requestedTypes.join(', ')}`);
+  if (requestReason)          lines.push(`Reason: ${requestReason}`);
+  if (rawResponse != null) {
+    lines.push('');
+    lines.push(String(rawResponse).slice(0, 3000));
+    if (String(rawResponse).length > 3000) lines.push('…');
+  }
+  return lines.join('\n');
 }
 
 function formatCost(usd) {

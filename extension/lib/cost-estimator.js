@@ -26,7 +26,7 @@ export const PRICING = {
   'claude-haiku-4-5':  { inUSDPer1M:  1,   outUSDPer1M:  5   },
   // Planner (LLM1) - placeholder rates; verify against current OpenAI pricing.
   // Numbers are tiny on purpose for nano-tier; telemetry will surface drift.
-  'gpt-5-nano':        { inUSDPer1M:  0.05, outUSDPer1M:  0.40 },
+  'gpt-5-nano-2025-08-07': { inUSDPer1M: 0.05, outUSDPer1M: 0.40 },
 };
 
 /**

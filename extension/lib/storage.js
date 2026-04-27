@@ -109,7 +109,7 @@ export const DEFAULT_SETTINGS = {
   // is enabled - if no OpenAI key exists, the orchestrator falls back to the
   // defaultPlannerFailurePackage rather than calling out.
   plannerProvider: 'openai',
-  plannerModelId:  'gpt-5-nano',
+  plannerModelId:  'gpt-5-nano-2025-08-07',
 
   // Maximum number of LLM2 fallback round-trips per turn.
   plannerMaxFallbacks: 1,

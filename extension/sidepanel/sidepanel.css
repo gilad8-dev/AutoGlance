@@ -1222,6 +1222,18 @@ button {
 .input-area.mode-blocked  .input-toggle { color: var(--warn-ink); }
 .input-area.mode-disabled .input-toggle { color: var(--text-faint); }
 
+/* Planner toggle has its own color axis (accent when on, faint when off)
+   independent of the Glance mode color that other input-toggles inherit. */
+.input-area.mode-enabled .planner-toggle                  { color: var(--text-faint); }
+.input-area.mode-enabled .planner-toggle[aria-pressed="true"] { color: var(--accent); }
+
+/* Dim and block interaction when Glance can't inspect — planner requires Glance. */
+.input-area.mode-disabled .planner-toggle,
+.input-area.mode-blocked  .planner-toggle {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .message-input {
   flex: 1;
   min-width: 0;
@@ -1443,6 +1455,58 @@ button {
   font-size: 11px;
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* Flow-path row — monospace, slightly smaller, wraps naturally */
+.telemetry-row--flow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  word-break: break-all;
+}
+
+/* I/O panels — collapsible <details> inside the telemetry drawer */
+.telemetry-section--io { padding-bottom: 4px; }
+
+.telemetry-io {
+  border-top: 1px solid var(--border);
+}
+.telemetry-io:first-of-type { border-top: none; }
+
+.telemetry-io summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.telemetry-io summary::-webkit-details-marker { display: none; }
+.telemetry-io summary::before {
+  content: '▸';
+  font-size: 9px;
+  transition: transform var(--dur-fast) var(--ease-out);
+  flex-shrink: 0;
+}
+.telemetry-io[open] summary::before { transform: rotate(90deg); }
+.telemetry-io summary:hover { color: var(--text); }
+
+.telemetry-io-content {
+  margin: 0;
+  padding: 6px 12px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: oklch(from var(--surface-1) l c h / 0.6);
 }
 
 /* Per-turn privacy-blocked badge - rendered in the same slot as the chip

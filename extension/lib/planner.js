@@ -28,7 +28,7 @@ import { getPricing } from './cost-estimator.js';
 
 const PLANNER_API_URL    = 'https://api.openai.com/v1/chat/completions';
 const PLANNER_TIMEOUT_MS = 15_000;
-const PLANNER_MAX_TOKENS = 200;   // output is ~50 tokens; cap defensively
+const PLANNER_MAX_TOKENS = 2500;
 
 /** Vocabulary the planner is allowed to choose from. Must match context-tools.js. */
 export const ALLOWED_CONTEXT_TYPES = ['none', 'viewport_dom', 'viewport_screenshot'];
@@ -39,7 +39,7 @@ const ALLOWED_RISK = ['low', 'medium', 'high'];
  * invalidates historical comparisons. Telemetry stamps every decision with
  * this so a/b/c versioned tuning stays meaningful.
  */
-export const PLANNER_PROMPT_VERSION = 'v1';
+export const PLANNER_PROMPT_VERSION = 'v3';
 
 /**
  * System prompt - short and rule-driven. The decision rules echo the
@@ -55,8 +55,7 @@ const PLANNER_SYSTEM_PROMPT = [
   `{`,
   `  "context_types": [<subset of available_context_types>],`,
   `  "reason": "<short explanation of the choice>",`,
-  `  "fallback_risk": "low" | "medium" | "high",`,
-  `  "estimated_package_cost": <number, USD>`,
+  `  "fallback_risk": "low" | "medium" | "high"`,
   `}`,
   ``,
   `Decision rules:`,
@@ -67,15 +66,28 @@ const PLANNER_SYSTEM_PROMPT = [
   ``,
   `2. context_types must be a subset of available_context_types.`,
   ``,
-  `3. "none" is allowed only when ALL of these hold:`,
+  `3. Use "none" when ALL of these hold:`,
   `   a. conversation_has_prior_turns is true.`,
   `   b. all change_signals are false.`,
-  `   c. the user prompt does not obviously need fresh page state.`,
-  `   Examples where "none" is appropriate: clarifications ("what does that mean?"),`,
-  `   rephrasings, references to your prior answer ("explain the second point").`,
-  `   Examples that need fresh context even on follow-up: "what's the price now?",`,
-  `   "did the chart update?", "is the button enabled?", or any new specific`,
-  `   question about page state.`,
+  `   c. The prompt does not signal that the user is asking about NEW or DIFFERENT`,
+  `      content not yet seen by the answering model.`,
+  ``,
+  `   Core insight: if the page has not changed (all change_signals false), the`,
+  `   answering model already has that page's content in its conversation memory`,
+  `   from prior turns. Re-sending the same screenshot or DOM wastes tokens with`,
+  `   no benefit. When the page is unchanged, default to "none".`,
+  ``,
+  `   "none" IS correct for:`,
+  `   - Follow-ups on the same content: "and can you solve this one?", "what about`,
+  `     this formula?", "can you elaborate?" when page is unchanged.`,
+  `   - Clarifications: "what does that mean?", "explain further", "say it again".`,
+  `   - References to the prior answer: "explain the second point", "rephrase that".`,
+  ``,
+  `   "none" is NOT correct for:`,
+  `   - Prompts signaling changed state: "what's the price now?", "did it update?".`,
+  `   - Prompts explicitly requesting new/different content: "solve the OTHER formula",`,
+  `     "look at this new one", "what about the chart on the next page?".`,
+  `   - First messages (no prior context exists).`,
   ``,
   `4. Prefer viewport_dom for tasks that depend on visible text, summarization,`,
   `   structured data, or links.`,
@@ -90,9 +102,6 @@ const PLANNER_SYSTEM_PROMPT = [
   `7. fallback_risk reflects the chance the answering model will need additional`,
   `   context after this. "low" when the package is comprehensive for the prompt.`,
   ``,
-  `8. estimated_package_cost should equal the sum of est_cost_usd for the chosen`,
-  `   context_types from context_options.`,
-  ``,
   `Output ONLY the JSON object. No prose, no markdown fences.`,
 ].join('\n');
 
@@ -103,16 +112,15 @@ const PLANNER_JSON_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['context_types', 'reason', 'fallback_risk', 'estimated_package_cost'],
+    required: ['context_types', 'reason', 'fallback_risk'],
     properties: {
       context_types: {
         type: 'array',
         items: { type: 'string', enum: ALLOWED_CONTEXT_TYPES },
         minItems: 1,
       },
-      reason:                 { type: 'string' },
-      fallback_risk:          { type: 'string', enum: ALLOWED_RISK },
-      estimated_package_cost: { type: 'number' },
+      reason:        { type: 'string' },
+      fallback_risk: { type: 'string', enum: ALLOWED_RISK },
     },
   },
 };
@@ -193,10 +201,9 @@ export async function planContext(args) {
   }
 
   const decision = {
-    context_types:          validated.decision.context_types,
-    reason:                 validated.decision.reason,
-    fallback_risk:          validated.decision.fallback_risk,
-    estimated_package_cost: validated.decision.estimated_package_cost,
+    context_types: validated.decision.context_types,
+    reason:        validated.decision.reason,
+    fallback_risk: validated.decision.fallback_risk,
   };
 
   return {
@@ -293,8 +300,9 @@ async function callPlanner({ apiKey, model, userMessage, signal }) {
           { role: 'system', content: PLANNER_SYSTEM_PROMPT },
           { role: 'user',   content: userMessage },
         ],
-        response_format:        { type: 'json_schema', json_schema: PLANNER_JSON_SCHEMA },
-        max_completion_tokens:  PLANNER_MAX_TOKENS,
+        // No response_format — system prompt instructs JSON-only output.
+        // Dropping this makes the call compatible with any GPT model tier.
+        max_completion_tokens: PLANNER_MAX_TOKENS,
       }),
       signal: ctrl.signal,
     });
@@ -305,9 +313,20 @@ async function callPlanner({ apiKey, model, userMessage, signal }) {
       throw new Error(`Planner API ${response.status}: ${body.slice(0, 200)}`);
     }
 
-    const data  = await response.json();
-    const text  = data?.choices?.[0]?.message?.content ?? '';
-    const usage = data?.usage ? {
+    const data    = await response.json();
+    const choice  = data?.choices?.[0];
+    const message = choice?.message;
+    const text    = message?.content ?? '';
+    if (!text) {
+      const refusal      = message?.refusal;
+      const finishReason = choice?.finish_reason;
+      throw new Error(
+        refusal
+          ? `Planner model refused: ${refusal}`
+          : `Planner returned no content (finish_reason=${finishReason ?? '?'}). Check that plannerModelId is a valid chat-completion model.`
+      );
+    }
+    const usage   = data?.usage ? {
       inputTokens:  data.usage.prompt_tokens,
       outputTokens: data.usage.completion_tokens,
     } : null;
@@ -366,9 +385,6 @@ function validateDecision(text, ctx) {
   if (!ALLOWED_RISK.includes(obj.fallback_risk)) {
     return { ok: false, source: 'invalid-shape', reason: `fallback_risk must be one of ${ALLOWED_RISK.join('|')}` };
   }
-  if (typeof obj.estimated_package_cost !== 'number' || !Number.isFinite(obj.estimated_package_cost)) {
-    return { ok: false, source: 'invalid-shape', reason: 'estimated_package_cost must be a finite number' };
-  }
 
   // "none" rule enforcement (mechanical clauses 3a + 3b only; clause 3c -
   // prompt-level "needs fresh page state" - is delegated to LLM1).
@@ -383,10 +399,9 @@ function validateDecision(text, ctx) {
   return {
     ok: true,
     decision: {
-      context_types:          dedup,
-      reason:                 obj.reason.trim(),
-      fallback_risk:          obj.fallback_risk,
-      estimated_package_cost: obj.estimated_package_cost,
+      context_types: dedup,
+      reason:        obj.reason.trim(),
+      fallback_risk: obj.fallback_risk,
     },
   };
 }

@@ -122,6 +122,7 @@ async function handleGetPageManifest(sendResponse) {
       // Scripting fails on chrome://, the Web Store, sandboxed PDF viewers,
       // and similar restricted contexts. Surface the failure rather than
       // silently producing a partial manifest.
+      console.warn('[AutoGlance] executeScript failed — tabId:', tab.id, 'url:', tab.url, 'error:', err.message);
       sendResponse({
         success: false,
         error: err.message,
@@ -131,6 +132,7 @@ async function handleGetPageManifest(sendResponse) {
     }
 
     if (!manifest) {
+      console.warn('[AutoGlance] executeScript returned no result — tabId:', tab.id, 'url:', tab.url);
       sendResponse({ success: false, error: 'Manifest extraction returned no result' });
       return;
     }

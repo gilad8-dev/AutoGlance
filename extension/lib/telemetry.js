@@ -135,11 +135,17 @@ export async function clearAll() {
 function pushToRingBuffer(record) {
   chrome.storage.local.get({ [RING_BUFFER_KEY]: [] }, (result) => {
     const buf = result[RING_BUFFER_KEY] ?? [];
-    // Strip the in-memory _finalized marker before persisting
-    const { _finalized, ...persistable } = record;
+    // Strip large / in-memory-only fields before persisting. `io` contains raw
+    // LLM response text (potentially KBs) — the chip uses the in-memory record
+    // for display, so stripping it here keeps the ring buffer compact.
+    const { _finalized, io: _io, ...persistable } = record;
     buf.push(persistable);
     while (buf.length > RING_BUFFER_MAX) buf.shift();
-    chrome.storage.local.set({ [RING_BUFFER_KEY]: buf });
+    chrome.storage.local.set({ [RING_BUFFER_KEY]: buf }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('[AutoGlance] telemetry ring buffer persist failed:', chrome.runtime.lastError.message);
+      }
+    });
   });
 }
 

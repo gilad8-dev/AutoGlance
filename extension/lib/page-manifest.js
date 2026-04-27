@@ -176,23 +176,47 @@ export function extractManifestInPage() {
 }
 
 /**
- * Build a manifest for the active tab. Returns null on extraction failure
- * (chrome:// pages, file picker dialogs, sandboxed PDF viewers, etc.).
+ * Build a manifest for the active tab.
+ * Returns { manifest, error: null } on success or { manifest: null, error: string } on failure.
  *
- * Augments the in-page result with tabId and a sensitive-keyword flag derived
- * from URL + title (cheap regex match using existing privacy-rules helper).
+ * Runs entirely in the side-panel context — no service worker round-trip. Extension
+ * pages can call chrome.scripting.executeScript directly with the declared
+ * 'scripting' + '<all_urls>' permissions, avoiding the MV3 service-worker lifetime
+ * issue (SW wakes, port opens, SW goes back to sleep before sendResponse fires).
  */
 export async function buildManifest() {
-  let result;
+  let tab;
   try {
-    result = await chrome.runtime.sendMessage({ type: 'GET_PAGE_MANIFEST' });
-  } catch {
-    return null; // service worker restarting or no listener
+    // currentWindow: true finds the active tab in the window this side panel belongs to.
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    tab = activeTab ?? null;
+  } catch (err) {
+    console.warn('[AutoGlance] buildManifest: tabs.query failed:', err.message);
+    return { manifest: null, error: `tabs.query: ${err.message}` };
   }
-  if (!result?.success || !result.manifest) return null;
 
-  const m = result.manifest;
-  m.tabId = result.tabId ?? null;
-  m.sensitiveKeywordsHit = detectSensitivePattern(m.url || '', m.title || '');
-  return m;
+  if (!tab) {
+    return { manifest: null, error: 'no active tab found' };
+  }
+
+  let rawManifest = null;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractManifestInPage,
+    });
+    rawManifest = results?.[0]?.result ?? null;
+  } catch (err) {
+    console.warn('[AutoGlance] buildManifest: executeScript failed — tabId:', tab.id, 'url:', tab.url, 'error:', err.message);
+    return { manifest: null, error: `extraction-blocked: ${err.message}` };
+  }
+
+  if (!rawManifest) {
+    console.warn('[AutoGlance] buildManifest: executeScript returned no result — tabId:', tab.id, 'url:', tab.url);
+    return { manifest: null, error: 'no manifest returned' };
+  }
+
+  rawManifest.tabId = tab.id;
+  rawManifest.sensitiveKeywordsHit = detectSensitivePattern(rawManifest.url || '', rawManifest.title || '');
+  return { manifest: rawManifest, error: null };
 }
