@@ -1128,6 +1128,43 @@ button {
   30%           { opacity: 1;   transform: translateY(-3px); }
 }
 
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 8px var(--space-4);
+  position: relative;
+}
+
+.status-indicator::before {
+  content: '◈';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--accent);
+  opacity: 0.75;
+  line-height: 1;
+}
+
+.status-indicator__label {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  animation: status-label-pulse 2s ease-in-out infinite;
+}
+
+.status-indicator__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@keyframes status-label-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+
 /* ── Input area ───────────────────────────────────────────────────────────── */
 
 .input-area {
@@ -1218,14 +1255,16 @@ button {
 .input-toggle:hover  { background: oklch(from var(--text) l c h / 0.06); }
 .input-toggle:active { background: oklch(from var(--text) l c h / 0.10); }
 
-.input-area.mode-enabled  .input-toggle { color: var(--success-ink); }
+.input-area.mode-enabled  .input-toggle { color: var(--accent); }
 .input-area.mode-blocked  .input-toggle { color: var(--warn-ink); }
 .input-area.mode-disabled .input-toggle { color: var(--text-faint); }
 
-/* Planner toggle has its own color axis (accent when on, faint when off)
+/* Planner and shadow toggles have their own color axis (accent when on, faint when off)
    independent of the Glance mode color that other input-toggles inherit. */
-.input-area.mode-enabled .planner-toggle                  { color: var(--text-faint); }
-.input-area.mode-enabled .planner-toggle[aria-pressed="true"] { color: var(--accent); }
+.input-area.mode-enabled .planner-toggle,
+.input-area.mode-enabled .shadow-toggle                        { color: var(--text-faint); }
+.input-area.mode-enabled .planner-toggle[aria-pressed="true"],
+.input-area.mode-enabled .shadow-toggle[aria-pressed="true"]   { color: var(--accent); }
 
 /* Dim and block interaction when Glance can't inspect — planner requires Glance. */
 .input-area.mode-disabled .planner-toggle,
@@ -1317,7 +1356,7 @@ button {
 }
 
 .context-badge--active   { color: var(--success-ink); }
-.context-badge--blocked  { color: var(--warn-ink); }
+.context-badge--blocked  { color: var(--warn-ink); flex-wrap: wrap; white-space: normal; max-width: 100%; }
 .context-badge--disabled { color: var(--text-faint); }
 
 /* ── Telemetry chip & drawer ──────────────────────────────────────────────── */

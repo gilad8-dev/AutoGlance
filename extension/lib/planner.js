@@ -2,26 +2,35 @@
  * LLM1 - the cheap context planner.
  *
  * Purpose: given the user's prompt + a manifest summary + change signals +
- * the available tool cost menu, decide which context tools to gather before
- * calling the answering model. The planner NEVER answers the user. Its
+ * a two-option cost menu, decide whether the answering model needs fresh
+ * browser context this turn. The planner NEVER answers the user. Its
  * output is a tiny strict-JSON object the orchestrator consumes.
+ *
+ * Binary decision:
+ *   "none"            → answer purely from conversation history (zero extra tokens)
+ *   "context_needed"  → gather the cheapest available context tool (DOM or screenshot),
+ *                       chosen by the orchestrator based on the live cost menu
+ *
+ * The planner no longer chooses WHICH context tool to use. That decision is
+ * deterministic (cheapest available) and handled entirely by the orchestrator.
+ * This removes a whole class of wrong decisions where the planner would pick a
+ * more expensive tool for quality reasons that don't justify the extra cost.
  *
  * Inputs given to LLM1 (and only these):
  *   - user prompt (text)
  *   - manifest summary (facts only - no raw page text, no hashes)
  *   - change signals
- *   - available context types
- *   - estimated costs per option
+ *   - two-option cost menu: none (0 tok) vs context_needed (cheapest tool tok)
+ *   - conversation_has_prior_turns flag
  *
  * Inputs deliberately NOT given to LLM1:
- *   - raw DOM
- *   - screenshots
+ *   - raw DOM or screenshots
  *   - the full conversation history
+ *   - which specific tool (DOM vs screenshot) will be used
  *
  * Provider: OpenAI GPT-5-nano (one-shot, non-streaming, json_schema-enforced).
- * Direct fetch - does not go through ai-client.js, because the planner has a
- * different request shape (no streaming, no chat history) and would only get
- * awkward routed through the chat client.
+ * Direct fetch - does not go through ai-client.js because the planner has a
+ * different request shape (no streaming, no chat history).
  */
 
 import { getPricing } from './cost-estimator.js';
@@ -30,8 +39,9 @@ const PLANNER_API_URL    = 'https://api.openai.com/v1/chat/completions';
 const PLANNER_TIMEOUT_MS = 15_000;
 const PLANNER_MAX_TOKENS = 2500;
 
-/** Vocabulary the planner is allowed to choose from. Must match context-tools.js. */
-export const ALLOWED_CONTEXT_TYPES = ['none', 'viewport_dom', 'viewport_screenshot'];
+/** Vocabulary the planner is allowed to output. The orchestrator maps
+ *  'context_needed' to the cheapest available actual tool at runtime. */
+export const ALLOWED_CONTEXT_TYPES = ['none', 'context_needed'];
 const ALLOWED_RISK = ['low', 'medium', 'high'];
 
 /**
@@ -39,47 +49,40 @@ const ALLOWED_RISK = ['low', 'medium', 'high'];
  * invalidates historical comparisons. Telemetry stamps every decision with
  * this so a/b/c versioned tuning stays meaningful.
  */
-export const PLANNER_PROMPT_VERSION = 'v4';
+export const PLANNER_PROMPT_VERSION = 'v5';
 
 /**
- * System prompt - short and rule-driven. The decision rules echo the
- * planner-design spec and are the single source of truth for LLM1 behaviour.
- * Output schema enforced separately via response_format.json_schema.
+ * System prompt — rule-driven binary decision: none vs context_needed.
+ * The tool-selection rules (DOM vs screenshot preference) have been removed;
+ * that choice is now deterministic (cheapest available) in the orchestrator.
  */
 const PLANNER_SYSTEM_PROMPT = [
   `You are a browser-context planner for an AI browser assistant called AutoGlance.`,
-  `Your only job is to choose what page data to attach to the user's next message`,
-  `before it reaches the answering model. You DO NOT answer the user.`,
+  `Your only job is to decide whether the answering model needs fresh browser context`,
+  `to handle the user's request. You do NOT choose which specific tool to use —`,
+  `that is determined automatically by the system. You DO NOT answer the user.`,
   ``,
   `Output strict JSON only with this exact shape:`,
   `{`,
-  `  "context_types": [<subset of available_context_types>],`,
-  `  "reason": "<short explanation of the choice>",`,
+  `  "context_types": ["none"] | ["context_needed"],`,
+  `  "reason": "<short explanation>",`,
   `  "fallback_risk": "low" | "medium" | "high"`,
   `}`,
   ``,
   `Decision rules:`,
   ``,
-  `1. Pick the cheapest set of context_types that is very likely sufficient`,
-  `   for a separate model to answer correctly. Prefer correctness over cost`,
-  `   when uncertain.`,
-  ``,
-  `2. context_types must be a subset of available_context_types.`,
-  ``,
-  `3. Use "none" when ALL of these hold:`,
+  `1. "none" means zero additional token cost — the answering model replies`,
+  `   purely from conversation history. Use "none" only when ALL of these hold:`,
   `   a. conversation_has_prior_turns is true.`,
-  `   b. all change_signals are false.`,
+  `   b. All change_signals are false.`,
   `   c. The prompt does not signal that the user is asking about NEW or DIFFERENT`,
   `      content not yet seen by the answering model.`,
-  `   d. page_manifest.dom_reliable is true. If false (PDF viewer, canvas-dominant`,
-  `      page, or similar), change signals are blind to visual content changes —`,
-  `      scrolling to a new PDF page leaves all signals false. "none" is unsafe;`,
-  `      gather a screenshot instead.`,
+  `   d. page_manifest.dom_reliable is true. When false (PDF viewer, canvas-dominant`,
+  `      page), change signals are blind to visual content changes — "none" is unsafe.`,
   ``,
-  `   Core insight: if the page has not changed (all change_signals false), the`,
-  `   answering model already has that page's content in its conversation memory`,
-  `   from prior turns. Re-sending the same screenshot or DOM wastes tokens with`,
-  `   no benefit. When the page is unchanged, default to "none".`,
+  `   Core insight: if the page has not changed, the answering model already has`,
+  `   that page's content in its conversation memory from prior turns. Re-sending`,
+  `   context wastes tokens with no benefit.`,
   ``,
   `   "none" IS correct for:`,
   `   - Follow-ups on the same content: "and can you solve this one?", "what about`,
@@ -89,28 +92,24 @@ const PLANNER_SYSTEM_PROMPT = [
   ``,
   `   "none" is NOT correct for:`,
   `   - Prompts signaling changed state: "what's the price now?", "did it update?".`,
-  `   - Prompts explicitly requesting new/different content: "solve the OTHER formula",`,
+  `   - Prompts requesting new/different content: "solve the OTHER formula",`,
   `     "look at this new one", "what about the chart on the next page?".`,
   `   - First messages (no prior context exists).`,
   `   - Pages with dom_reliable: false (condition d above).`,
   ``,
-  `4. Prefer viewport_dom for tasks that depend on visible text, summarization,`,
-  `   structured data, or links.`,
+  `2. "context_needed" for everything else. The system will automatically pick the`,
+  `   cheapest available context tool (DOM or screenshot). The cost shown in`,
+  `   context_options already reflects the cheapest option that will be used.`,
   ``,
-  `5. Prefer viewport_screenshot for tasks that depend on visual layout, charts,`,
-  `   graphs, canvas content, formulas in image form, exact UI state, OR when`,
-  `   page_manifest.dom_reliable is false.`,
-  ``,
-  `6. Avoid combining viewport_dom + viewport_screenshot unless both are clearly`,
-  `   needed (e.g. a chart paired with surrounding caption text).`,
-  ``,
-  `7. fallback_risk reflects the chance the answering model will need additional`,
-  `   context after this. "low" when the package is comprehensive for the prompt.`,
+  `3. fallback_risk: "low" when the intent is clear and fresh context will likely`,
+  `   suffice. "medium" or "high" when the prompt is ambiguous or only partial`,
+  `   content may be visible in the viewport.`,
   ``,
   `Output ONLY the JSON object. No prose, no markdown fences.`,
 ].join('\n');
 
-/** OpenAI structured-output schema. Strict mode rejects unknown keys. */
+/** OpenAI structured-output schema. Strict mode rejects unknown keys.
+ *  maxItems:1 enforces the binary decision — always exactly one element. */
 const PLANNER_JSON_SCHEMA = {
   name: 'context_plan',
   strict: true,
@@ -123,6 +122,7 @@ const PLANNER_JSON_SCHEMA = {
         type: 'array',
         items: { type: 'string', enum: ALLOWED_CONTEXT_TYPES },
         minItems: 1,
+        maxItems: 1,
       },
       reason:        { type: 'string' },
       fallback_risk: { type: 'string', enum: ALLOWED_RISK },
@@ -142,11 +142,11 @@ const PLANNER_JSON_SCHEMA = {
  * @param {string} args.userPrompt
  * @param {object} args.manifest                    Full manifest from page-manifest.js
  * @param {object} args.changeSignals               From change-signals.js
- * @param {Array}  args.costMenu                    From cost-estimator.buildCostMenu
+ * @param {Array}  args.costMenu                    Two-entry menu: none + context_needed
  * @param {boolean} args.conversationHasPriorTurns
  * @param {string} args.apiKey                      OpenAI API key
  * @param {string} args.plannerModelId              Default 'gpt-5-nano'
- * @param {string[]} args.defaultFailurePackage     e.g. ['viewport_dom','viewport_screenshot']
+ * @param {string[]} args.defaultFailurePackage     Fallback on planner failure, e.g. ['context_needed']
  * @param {AbortSignal} [args.signal]
  * @returns {Promise<PlannerDecision>}
  */
@@ -159,7 +159,7 @@ export async function planContext(args) {
     conversationHasPriorTurns,
     apiKey,
     plannerModelId = 'gpt-5-nano',
-    defaultFailurePackage = ['viewport_dom', 'viewport_screenshot'],
+    defaultFailurePackage = ['context_needed'],
     signal,
   } = args ?? {};
 
@@ -233,7 +233,7 @@ export async function planContext(args) {
 
 /**
  * Build the JSON body the planner sees as its user message. Manifest is
- * summarized to facts only - no raw text, no hashes, no tab id.
+ * summarized to facts only — no raw text, no hashes, no tab id.
  */
 function buildPlannerUserMessage({
   userPrompt,
@@ -255,8 +255,7 @@ function buildPlannerUserMessage({
 
 /**
  * Manifest summary in snake_case, facts only, no hashes or volatile fields
- * the planner can't reason about. Compact so it fits in nano's context window
- * and so the planner can scan it quickly.
+ * the planner can't reason about. Compact so it fits in nano's context window.
  */
 function summarizeManifestForPlanner(m) {
   if (!m) return null;
@@ -350,14 +349,13 @@ async function callPlanner({ apiKey, model, userMessage, signal }) {
  * Validation steps:
  *   1. JSON.parse must succeed.
  *   2. context_types must be a non-empty array.
- *   3. Every context_type must be in availableTypes.
+ *   3. Every context_type must be in availableTypes (none | context_needed).
  *   4. fallback_risk must be in {low, medium, high}.
- *   5. estimated_package_cost must be a finite number.
- *   6. reason must be a non-empty string.
- *   7. "none" rule: if context_types === ["none"], conversation must have prior
- *      turns AND every change signal must be false. (The third clause -
- *      prompt-level "needs fresh page state" - is delegated to LLM1; we don't
- *      second-guess it here.)
+ *   5. reason must be a non-empty string.
+ *   6. "none" rule: if context_types === ["none"], conversation must have prior
+ *      turns AND every change signal must be false AND dom_reliable must be true.
+ *      (The third clause — prompt-level "needs fresh page state" — is delegated
+ *      to LLM1; we don't second-guess it here.)
  */
 function validateDecision(text, ctx) {
   let obj;
@@ -381,8 +379,6 @@ function validateDecision(text, ctx) {
   if (filtered.length === 0) {
     return { ok: false, source: 'invalid-types', reason: 'No requested context_types are available' };
   }
-  // If the planner returned a mix where some are unavailable, drop the bad ones
-  // but keep the rest. This is more useful than a wholesale fallback.
   const dedup = Array.from(new Set(filtered));
 
   if (typeof obj.reason !== 'string' || !obj.reason.trim()) {
@@ -392,8 +388,8 @@ function validateDecision(text, ctx) {
     return { ok: false, source: 'invalid-shape', reason: `fallback_risk must be one of ${ALLOWED_RISK.join('|')}` };
   }
 
-  // "none" rule enforcement (mechanical clauses 3a + 3b only; clause 3c -
-  // prompt-level "needs fresh page state" - is delegated to LLM1).
+  // "none" rule enforcement (mechanical clauses 1a + 1b + 1d only; clause 1c
+  // — prompt-level "needs fresh page state" — is delegated to LLM1).
   const isNoneOnly = dedup.length === 1 && dedup[0] === 'none';
   if (isNoneOnly) {
     const verdict = isNoneAllowed_V1Strict(ctx);
@@ -452,20 +448,19 @@ function isNoneAllowed_V1Strict(ctx) {
 /** Build a normalized failure decision. `parseOk: false` flags it for telemetry. */
 function defaultDecision(defaultPackage, source, reason) {
   return {
-    context_types:          Array.isArray(defaultPackage) && defaultPackage.length
+    context_types:     Array.isArray(defaultPackage) && defaultPackage.length
       ? Array.from(new Set(defaultPackage))
-      : ['viewport_dom', 'viewport_screenshot'],
-    reason:                 reason || 'planner unavailable; using default failure package',
-    fallback_risk:          'unknown',
-    estimated_package_cost: null,
-    parseOk:                false,
+      : ['context_needed'],
+    reason:            reason || 'planner unavailable; using default failure package',
+    fallback_risk:     'unknown',
+    parseOk:           false,
     source,
-    promptVersion:          PLANNER_PROMPT_VERSION,
-    rawResponse:            null,
-    validatedDecision:      null,
-    latencyMs:              null,
-    actualUsage:            null,
-    actualCostUSD:          null,
+    promptVersion:     PLANNER_PROMPT_VERSION,
+    rawResponse:       null,
+    validatedDecision: null,
+    latencyMs:         null,
+    actualUsage:       null,
+    actualCostUSD:     null,
   };
 }
 

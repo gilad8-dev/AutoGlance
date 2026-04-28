@@ -44,14 +44,83 @@ export const PRICING = {
 };
 
 /**
+ * OpenAI patch-based tokenization (gpt-5.4-mini, gpt-5.4-nano, o4-mini, …).
+ * Source: OpenAI developers docs — "Patch-based image tokenization".
+ */
+function openaiPatchTokens(w, h, patchBudget, multiplier) {
+  const originalPatches = Math.ceil(w / 32) * Math.ceil(h / 32);
+  let resizedPatches = originalPatches;
+  if (originalPatches > patchBudget) {
+    const shrink = Math.sqrt((32 ** 2 * patchBudget) / (w * h));
+    const adjusted = shrink * Math.min(
+      Math.floor(w * shrink / 32) / (w * shrink / 32),
+      Math.floor(h * shrink / 32) / (h * shrink / 32),
+    );
+    const rw = Math.floor(w * adjusted);
+    const rh = Math.floor(h * adjusted);
+    resizedPatches = Math.min(Math.ceil(rw / 32) * Math.ceil(rh / 32), patchBudget);
+  }
+  return Math.round(resizedPatches * multiplier);
+}
+
+/**
+ * OpenAI tile-based tokenization (gpt-5, gpt-5.5, gpt-4o, gpt-4.1, …).
+ * Source: OpenAI developers docs — "Tile-based image tokenization".
+ */
+function openaiTileTokens(w, h, baseTokens, tileTokens) {
+  // Step 1 — fit within 2048×2048
+  if (w > 2048 || h > 2048) {
+    const s = Math.min(2048 / w, 2048 / h);
+    w = Math.floor(w * s);
+    h = Math.floor(h * s);
+  }
+  // Step 2 — scale so shortest side = 768
+  const minSide = Math.min(w, h);
+  if (minSide !== 768) {
+    const s = 768 / minSide;
+    w = Math.floor(w * s);
+    h = Math.floor(h * s);
+  }
+  const tiles = Math.ceil(w / 512) * Math.ceil(h / 512);
+  return baseTokens + tiles * tileTokens;
+}
+
+/**
+ * Per-model OpenAI image parameters.
+ * patch  → openaiPatchTokens(budget, multiplier)
+ * tile   → openaiTileTokens(base, tile)
+ *
+ * gpt-5.5 is not listed in the docs; gpt-5 values (base=70, tile=140) used
+ * as the nearest proxy until OpenAI publishes an explicit entry.
+ * gpt-5.4 is not listed; 4o/4.1/4.5 values (base=85, tile=170) used as proxy.
+ */
+const OPENAI_IMAGE_PARAMS = {
+  'gpt-5.5':      { type: 'tile',  base: 70,   tile: 140,  },
+  'gpt-5.4':      { type: 'tile',  base: 85,   tile: 170,  },
+  'gpt-5.4-mini': { type: 'patch', budget: 1536, mult: 1.62 },
+  'gpt-5.4-nano': { type: 'patch', budget: 1536, mult: 2.46 },
+};
+
+/**
  * Image-token formulas by provider. Anthropic uses an area-based formula;
- * OpenAI is tile-based (placeholder until Stage E); Gemini Flash is roughly
- * flat per image. The model's provider is looked up from the registry.
+ * OpenAI dispatches by model id (patch-based or tile-based per docs);
+ * Gemini is still a flat placeholder until official formula is published.
  */
 const IMAGE_TOKENS_BY_PROVIDER = {
-  anthropic: (w, h) => Math.ceil(((w || 0) * (h || 0)) / 750),
-  openai:    (_w, _h) => 765,   // rough high-detail placeholder
-  gemini:    (_w, _h) => 258,   // Flash flat rate placeholder
+  anthropic: (w, h, _id) => Math.ceil(((w || 0) * (h || 0)) / 750),
+  openai: (w, h, modelId) => {
+    const p = OPENAI_IMAGE_PARAMS[modelId];
+    if (!p) return 765; // unknown model — fall back to old placeholder
+    if (p.type === 'patch') return openaiPatchTokens(w, h, p.budget, p.mult);
+    return openaiTileTokens(w, h, p.base, p.tile);
+  },
+  // 258 tokens if both dims ≤ 384; otherwise tile by crop-unit formula (258/tile).
+  // Source: Gemini token calculation docs. Assumed uniform across Gemini models.
+  gemini: (w, h, _id) => {
+    if (w <= 384 && h <= 384) return 258;
+    const cropUnit = Math.floor(Math.min(w, h) / 1.5);
+    return Math.ceil(w / cropUnit) * Math.ceil(h / cropUnit) * 258;
+  },
 };
 
 const TOOL_OUTPUT_CAPS = {
@@ -81,7 +150,7 @@ export function estimateTextTokens(charCount) {
 export function estimateImageTokens(modelId, width, height) {
   const provider = getModelById(modelId)?.provider ?? 'anthropic';
   const fn = IMAGE_TOKENS_BY_PROVIDER[provider] ?? IMAGE_TOKENS_BY_PROVIDER.anthropic;
-  return fn(width, height);
+  return fn(width || 0, height || 0, modelId);
 }
 
 /** USD cost of `tokens` tokens at a given per-million rate. */
@@ -156,11 +225,17 @@ export function estimatePackageCost(types, manifest, llm2Model) {
  * Build the cost menu the planner sees. One entry per available tool with
  * estimated input tokens and cost. Cost is null for non-priced models;
  * the planner should still rank by est_tokens in that case.
+ *
+ * @param {Record<string,number>} [actualTokenOverrides]
+ *   Per-tool token counts measured from a prior real extraction on this page.
+ *   When present for a tool, the measured value replaces the formula estimate.
+ *   Caller (sidepanel) maintains a per-tab/URL cache and passes it here so the
+ *   planner sees real costs instead of formula approximations.
  */
-export function buildCostMenu(availableTypes, manifest, llm2Model) {
+export function buildCostMenu(availableTypes, manifest, llm2Model, actualTokenOverrides = {}) {
   const pricing = getPricing(llm2Model);
   return availableTypes.map((type) => {
-    const tokens = estimateToolInputTokens(type, manifest, llm2Model);
+    const tokens = actualTokenOverrides[type] ?? estimateToolInputTokens(type, manifest, llm2Model);
     const cost = pricing ? tokenCost(tokens, pricing.inUSDPer1M) : null;
     return { type, est_tokens: tokens, est_cost_usd: cost };
   });
@@ -187,12 +262,20 @@ export function estimateOldFlowBaseline({
   systemPromptChars = 0,
   historyChars = 0,
   expectedOutputTokens = 400,
+  maxImageWidth = 1280,
 }) {
   const inputTextChars = systemPromptChars + historyChars + (userPromptText?.length ?? 0);
   const inputTextTokens = estimateTextTokens(inputTextChars);
-  const imageTokens = manifest
-    ? estimateImageTokens(llm2Model, manifest.viewportW, manifest.viewportH)
-    : 0;
+  let imageTokens = 0;
+  if (manifest) {
+    let imgW = manifest.viewportW ?? 0;
+    let imgH = manifest.viewportH ?? 0;
+    if (imgW > maxImageWidth) {
+      imgH = Math.round((imgH * maxImageWidth) / imgW);
+      imgW = maxImageWidth;
+    }
+    imageTokens = estimateImageTokens(llm2Model, imgW, imgH);
+  }
   const inputTokens = inputTextTokens + imageTokens;
   const outputTokens = expectedOutputTokens;
 

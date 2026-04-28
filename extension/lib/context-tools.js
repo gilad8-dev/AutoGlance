@@ -218,25 +218,29 @@ export const TOOLS = {
     // false on canvas-dominant pages, near-empty pages, PDFs, and similar
     // contexts where text extraction won't help.
     available: (manifest) => manifest?.domReliable !== false,
-    gather: async ({ manifest, privacyStatus, llm2Model }) => {
+    gather: async ({ manifest, privacyStatus, preExtractedDom }) => {
       ensurePagePermission(privacyStatus);
 
-      // Execute directly from the side panel — no service worker round-trip
-      // (avoids the MV3 SW lifetime issue where the port closes mid-flight).
-      const tabId = manifest?.tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
-      if (!tabId) throw new Error('no active tab found for viewport_dom');
-
-      let results;
-      try {
-        results = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: extractViewportDomInPage,
-        });
-      } catch (err) {
-        throw new Error(`viewport_dom extraction failed: ${err.message}`);
+      // Reuse the pre-extraction result if the orchestrator already ran it
+      // before calling LLM1 (to give the planner an exact token count).
+      let dom = preExtractedDom ?? null;
+      if (!dom) {
+        // Execute directly from the side panel — no service worker round-trip
+        // (avoids the MV3 SW lifetime issue where the port closes mid-flight).
+        const tabId = manifest?.tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+        if (!tabId) throw new Error('no active tab found for viewport_dom');
+        let results;
+        try {
+          results = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: extractViewportDomInPage,
+          });
+        } catch (err) {
+          throw new Error(`viewport_dom extraction failed: ${err.message}`);
+        }
+        dom = results?.[0]?.result ?? null;
       }
 
-      const dom = results?.[0]?.result;
       if (!dom) throw new Error('viewport_dom extraction returned no result');
 
       const { content, truncated, sizeBytes } = dom;

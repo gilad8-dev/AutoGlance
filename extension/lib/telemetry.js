@@ -54,7 +54,7 @@ export function update(turnId, patch) {
   for (const key of Object.keys(patch)) {
     const incoming = patch[key];
     const isNestedObject = incoming && typeof incoming === 'object' && !Array.isArray(incoming);
-    const isGroup = ['planner', 'package', 'llm2', 'oldFlowBaseline', 'totals'].includes(key);
+    const isGroup = ['planner', 'package', 'llm2', 'oldFlowBaseline', 'shadowOldFlow', 'totals'].includes(key);
     if (isNestedObject && isGroup) {
       record[key] = { ...(record[key] ?? {}), ...incoming };
     } else {
@@ -75,6 +75,7 @@ export function finalize(turnId) {
   const planner  = record.planner  ?? {};
   const llm2     = record.llm2     ?? {};
   const baseline = record.oldFlowBaseline ?? {};
+  const shadow   = record.shadowOldFlow   ?? {};
 
   const plannerActual = planner.actualCostUSD ?? 0;
   const llm2Actual    = llm2.actualCostUSD    ?? 0;
@@ -84,7 +85,8 @@ export function finalize(turnId) {
   const llm2Est    = llm2.estCostUSD    ?? 0;
   const estCost = (plannerEst + llm2Est) || null;
 
-  const baselineCost = baseline.estCostUSD ?? null;
+  // Use shadow actual when available (real old-flow call ran); fall back to estimate.
+  const baselineCost = shadow.actualCostUSD ?? baseline.estCostUSD ?? null;
 
   record.totals = {
     actualCostUSD: actualCost,

@@ -104,6 +104,11 @@ export const DEFAULT_SETTINGS = {
   // Edit via chrome.storage.sync.set in DevTools to flip during dev.
   _internalUsePlannerFlow: false,
 
+  // When ON, runs a real old-flow LLM2 call (screenshot) in parallel with the
+  // planner turn so telemetry can show actual vs actual instead of actual vs
+  // estimated. Dev/testing only — doubles the API cost every turn.
+  _internalShadowOldFlow: false,
+
   // Planner (LLM1) provider/model. GPT-5-nano via the OpenAI API for MVP.
   // Reuses the user's openaiApiKey (settings.openaiApiKey) when the planner
   // is enabled - if no OpenAI key exists, the orchestrator falls back to the
@@ -122,6 +127,11 @@ export const DEFAULT_SETTINGS = {
   // Telemetry chip below each assistant message in the side panel. Surfaces
   // estimated-vs-actual cost, planner decision, fallback state, latency.
   showTelemetry: true,
+
+  // Master switch for developer-facing UI. When false: planner and shadow
+  // toggles are hidden from the input bar, the telemetry chip is suppressed,
+  // and the planner automatically follows the Glance toggle.
+  developerTelemetry: true,
 };
 
 /** Returns the API key for the currently selected provider. */

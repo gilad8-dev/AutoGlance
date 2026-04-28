@@ -106,7 +106,7 @@ function populateForm(s) {
   $('screenshot-quality').value   = s.screenshotQuality ?? 70;
   $('quality-value').textContent  = `${s.screenshotQuality ?? 70}%`;
   $('max-width').value            = String(s.maxImageWidth  ?? 1280);
-  $('show-telemetry').checked     = s.showTelemetry     ?? true;
+  $('developer-telemetry').checked  = s.developerTelemetry  ?? true;
 
   $('blocked-domains').value = (s.blockedDomains ?? DEFAULT_SETTINGS.blockedDomains).join('\n');
 }
@@ -178,7 +178,7 @@ async function handleSave() {
       glanceEnabled:     $('glance-enabled').checked,
       screenshotQuality: parseInt($('screenshot-quality').value, 10),
       maxImageWidth:     parseInt($('max-width').value, 10),
-      showTelemetry:     $('show-telemetry').checked,
+      developerTelemetry: $('developer-telemetry').checked,
       blockedDomains,
     };
 

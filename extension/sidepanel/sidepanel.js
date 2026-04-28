@@ -18,8 +18,8 @@ import { buildManifest } from '../lib/page-manifest.js';
 import { createChangeSignalTracker } from '../lib/change-signals.js';
 import { estimateOldFlowBaseline, buildCostMenu, estimateTextTokens, getPricing } from '../lib/cost-estimator.js';
 import { startTurn as telemetryStart, update as telemetryUpdate, markEnd as telemetryMarkEnd, finalize as telemetryFinalize, costFromUsage } from '../lib/telemetry.js';
-import { planContext, ALLOWED_CONTEXT_TYPES } from '../lib/planner.js';
-import { gatherTools } from '../lib/context-tools.js';
+import { planContext } from '../lib/planner.js';
+import { gatherTools, extractViewportDomInPage, emptyPackage } from '../lib/context-tools.js';
 import { askLLM2, degradeToProvideAnswer, buildBrowserContextText } from '../lib/llm2-protocol.js';
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -39,6 +39,7 @@ let conversationHistory = [];
  */
 const signalTracker = createChangeSignalTracker();
 
+
 // ── DOM Refs ──────────────────────────────────────────────────────────────
 
 const $ = (id) => document.getElementById(id);
@@ -50,6 +51,7 @@ const clearBtn         = $('clear-btn');
 const settingsBtn      = $('settings-btn');
 const glanceToggle     = $('glance-toggle');
 const plannerToggle    = $('planner-toggle');
+const shadowToggle     = $('shadow-toggle');
 const inputArea        = document.querySelector('.input-area');
 const privacyBar       = $('privacy-bar');
 const privacyLabel     = $('privacy-label');
@@ -68,6 +70,8 @@ async function init() {
   updatePrivacyUI();
   updateGlanceToggleUI();
   updatePlannerToggleUI();
+  updateShadowToggleUI();
+  updateDevModeUI();
   checkApiKeyWarning();
 
   onSettingsChanged((changed) => {
@@ -76,6 +80,8 @@ async function init() {
     updatePrivacyUI();
     updateGlanceToggleUI();
     updatePlannerToggleUI();
+    updateShadowToggleUI();
+    updateDevModeUI();
     checkApiKeyWarning();
   });
 }
@@ -105,6 +111,7 @@ function bindEvents() {
 
   glanceToggle.addEventListener('click', toggleGlance);
   plannerToggle.addEventListener('click', togglePlannerFlow);
+  shadowToggle.addEventListener('click', toggleShadowOldFlow);
 
   // Provider chips - click switches provider, or opens Settings if no key.
   providerToggle.querySelectorAll('.provider-chip').forEach((chip) => {
@@ -187,7 +194,8 @@ async function handleSend() {
     && typeof document.startViewTransition === 'function'
     && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let typingEl;
+  let statusIndicator;
+  let thinkingTimer = null;
   if (canMorph) {
     let morphedRow = null;
     const transition = document.startViewTransition(() => {
@@ -197,9 +205,9 @@ async function handleSend() {
       rowEl.style.animation = 'none';
       rowEl.style.viewTransitionName = 'welcome-hero';
       morphedRow = rowEl;
-      typingEl = appendTypingIndicator();
+      statusIndicator = appendStatusIndicator();
     });
-    // Wait for the callback to run so typingEl is set before we proceed.
+    // Wait for the callback to run so statusIndicator is set before we proceed.
     await transition.updateCallbackDone;
     transition.finished.finally(() => {
       if (morphedRow) {
@@ -210,7 +218,7 @@ async function handleSend() {
   } else {
     if (welcome) welcome.remove();
     appendUserBubble(text);
-    typingEl = appendTypingIndicator();
+    statusIndicator = appendStatusIndicator();
   }
 
   try {
@@ -228,7 +236,9 @@ async function handleSend() {
     // useNewFlow requires all three. Otherwise we run the legacy single-shot
     // screenshot path, which is unchanged from prior behavior.
     const glanceCanInspect = settings.glanceEnabled && privacyStatus.state === 'enabled';
-    let useNewFlow         = glanceCanInspect && !!settings._internalUsePlannerFlow;
+    // In dev mode the planner is gated by its own toggle (_internalUsePlannerFlow).
+    // In production mode (developerTelemetry off) the planner always follows Glance.
+    let useNewFlow = glanceCanInspect && (settings.developerTelemetry ? !!settings._internalUsePlannerFlow : true);
 
     // Page inspection: build manifest whenever Glance can inspect (used by
     // both telemetry and the planner). Capture screenshot + page-context only
@@ -239,11 +249,6 @@ async function handleSend() {
     let manifestError  = null;
     if (glanceCanInspect) {
       ({ manifest, error: manifestError } = await buildManifest());
-      // Hard gate: revert to legacy flow for pages where DOM is unreliable
-      // (PDFs, canvas-dominant pages). Change signals are blind there, DOM
-      // tools are useless, and the planner always arrives at "screenshot" —
-      // so the new architecture adds overhead with zero routing benefit.
-      if (useNewFlow && manifest?.domReliable === false) useNewFlow = false;
       if (!useNewFlow) {
         screenshot = await captureScreenshot();
         const ctxResult = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
@@ -261,7 +266,7 @@ async function handleSend() {
     conversationHistory.push({ role: 'user', textContent: userText });
 
     // ── Telemetry setup (shared between flows) ────────────────────────────
-    const historyChars = conversationHistory.reduce((s, m) => s + (m.textContent?.length ?? 0), 0);
+    const historyChars = conversationHistory.slice(0, -1).reduce((s, m) => s + (m.textContent?.length ?? 0), 0);
     const changeSignals = manifest
       ? signalTracker.compute(manifest, conversationHistory.length > 1)
       : null;
@@ -272,10 +277,11 @@ async function handleSend() {
           userPromptText: userText,
           systemPromptChars: SYSTEM_PROMPT.length,
           historyChars,
+          maxImageWidth: settings.maxImageWidth ?? 1280,
         })
       : null;
 
-    const telemetryEnabled = settings.showTelemetry && glanceCanInspect;
+    const telemetryEnabled = settings.developerTelemetry && glanceCanInspect;
     const turnId = telemetryEnabled
       ? telemetryStart({
           flow:            useNewFlow ? 'planner' : 'legacy',
@@ -298,12 +304,19 @@ async function handleSend() {
         })
       : null;
 
-    typingEl.remove();
-    const { rowEl: assistantRowEl, bubbleEl } = appendAssistantBubble('');
-    bubbleEl.classList.add('loading-cursor');
-
     abortController = new AbortController();
     let fullText = '';
+    let assistantRowEl = null;
+    let bubbleEl       = null;
+
+    // Creates the assistant bubble on first chunk, removing the status indicator.
+    // Safe to call multiple times — subsequent calls are no-ops.
+    const ensureBubble = () => {
+      if (bubbleEl) return;
+      clearTimeout(thinkingTimer);
+      statusIndicator.remove();
+      ({ rowEl: assistantRowEl, bubbleEl } = appendAssistantBubble(''));
+    };
 
     if (useNewFlow) {
       // ── Planner flow ────────────────────────────────────────────────────
@@ -316,15 +329,23 @@ async function handleSend() {
       // resets fullText + the bubble before round 2 begins.
       const onChunk = (chunk) => {
         if (firstByteAt === null) firstByteAt = performance.now();
+        ensureBubble();
         fullText += chunk;
         bubbleEl.innerHTML = renderMarkdown(sealOpenFences(fullText));
         bubbleEl.classList.add('loading-cursor');
         scrollToBottom();
       };
       const resetBubble = () => {
+        ensureBubble();
         fullText = '';
         firstByteAt = null;
         bubbleEl.innerHTML = '';
+      };
+      // Fired by runPlannerFlow just before LLM2 is invoked (both none and
+      // context paths). Starts the 2s timer that transitions the indicator to
+      // "Thinking..." if the model hasn't responded yet.
+      const onLLM2Start = () => {
+        thinkingTimer = setTimeout(() => statusIndicator.setPhase('thinking'), 2000);
       };
 
       const result = await runPlannerFlow({
@@ -338,12 +359,11 @@ async function handleSend() {
         llm2Model,
         onChunk,
         resetBubble,
+        onLLM2Start,
         signal: abortController.signal,
       });
 
-      // Whatever finalAction.answer is, fullText already reflects what was
-      // streamed. Make sure it equals the final answer (degrade path may have
-      // injected text via onChunk, or the streaming path may have completed).
+      ensureBubble(); // guarantee bubble exists even if no chunks arrived
       bubbleEl.classList.remove('loading-cursor');
       const turnEndedAt = performance.now();
 
@@ -366,6 +386,40 @@ async function handleSend() {
       }
 
       conversationHistory.push({ role: 'assistant', textContent: fullText });
+
+      // Shadow old-flow: capture a screenshot and make a real LLM2 call using
+      // the legacy screenshot path, then record its actual token counts. This
+      // gives a true actual-vs-actual comparison instead of actual-vs-estimated.
+      // Only runs when the shadow toggle is ON. Non-fatal — failures are silent.
+      if (settings.developerTelemetry && settings._internalShadowOldFlow && turnId) {
+        try {
+          const shadowScreenshot = await captureScreenshot();
+          if (shadowScreenshot) {
+            let shadowUsage = null;
+            let shadowOutputText = '';
+            await streamMessage({
+              provider:     settings.provider,
+              apiKey,
+              model:        llm2Model,
+              systemPrompt: SYSTEM_PROMPT,
+              history:      prepareHistory(conversationHistory.slice(0, -2)),
+              userText:     text,
+              screenshot:   shadowScreenshot,
+              onChunk:      (chunk) => { shadowOutputText += chunk; },
+              onUsage:      (u) => { shadowUsage = u; },
+            });
+            telemetryUpdate(turnId, {
+              shadowOldFlow: {
+                actualInputTokens:  shadowUsage?.inputTokens  ?? null,
+                actualOutputTokens: shadowUsage?.outputTokens ?? null,
+                actualCostUSD:      shadowUsage ? costFromUsage(shadowUsage, llm2Model) : null,
+                inputUserText:      text,
+                outputText:         shadowOutputText || null,
+              },
+            });
+          }
+        } catch { /* shadow failures are non-fatal */ }
+      }
 
       if (turnId) {
         const planner       = result.planner;
@@ -399,6 +453,7 @@ async function handleSend() {
           io: {
             plannerUserPrompt: text,
             plannerCostMenu:   result.costMenu,
+            toolCostMenu:      result.toolCostMenu ?? [],
             r1PackageTypes:    result.initialPackage?.types    ?? [],
             r1PackageText:     previewPackageText(result.initialPackage),
             r1ImageCount:      result.initialPackage?.images?.length ?? 0,
@@ -438,9 +493,16 @@ async function handleSend() {
             errors:         finalPackage?.errors ?? {},
             totalSizeBytes: finalPackage?.totalSizeBytes ?? 0,
             estTokens:      finalPackage?.totalEstTokens ?? 0,
+            // Pre-gather estimate: from the cost menu (manifest-based, before extraction).
+            // Compare against estTokens (post-gather, real content) to see estimation error.
+            preGatherEstTokens: (planner.context_types ?? []).reduce((s, t) => {
+              const entry = (result.costMenu ?? []).find((e) => e.type === t);
+              return s + (entry?.est_tokens ?? 0);
+            }, 0),
             estCostUSD:     llm2EstCostUSD,
           },
           llm2: {
+            modelId:            llm2Model,
             rawResponse:        finalAction?.rawResponse ?? null,
             source:             finalAction?.source ?? null,
             finalAction:        finalAction?.action ?? null,
@@ -469,6 +531,8 @@ async function handleSend() {
       let llm2FirstByteAt = null;
       let actualUsage = null;
 
+      thinkingTimer = setTimeout(() => statusIndicator.setPhase('thinking'), 2000);
+
       await streamMessage({
         provider:     settings.provider,
         apiKey,
@@ -480,6 +544,7 @@ async function handleSend() {
         signal: abortController.signal,
         onChunk: (chunk) => {
           if (llm2FirstByteAt === null) llm2FirstByteAt = performance.now();
+          ensureBubble();
           fullText += chunk;
           bubbleEl.innerHTML = renderMarkdown(sealOpenFences(fullText));
           bubbleEl.classList.add('loading-cursor');
@@ -489,6 +554,7 @@ async function handleSend() {
       });
 
       const llm2EndedAt = performance.now();
+      ensureBubble(); // guarantee bubble exists even if no chunks arrived
       bubbleEl.classList.remove('loading-cursor');
 
       conversationHistory.push({ role: 'assistant', textContent: fullText });
@@ -504,6 +570,7 @@ async function handleSend() {
             estCostUSD: oldFlowBaseline?.estInputCostUSD  ?? null,
           },
           llm2: {
+            modelId:            llm2Model,
             estCostUSD:         oldFlowBaseline?.estCostUSD ?? null,
             actualInputTokens:  actualUsage?.inputTokens    ?? null,
             actualOutputTokens: actualUsage?.outputTokens   ?? null,
@@ -531,8 +598,10 @@ async function handleSend() {
     // computed signals against the previous one above).
     if (manifest) signalTracker.record(manifest);
 
+
   } catch (err) {
-    typingEl.remove();
+    clearTimeout(thinkingTimer);
+    statusIndicator.remove();
     // Only suppress AbortErrors that the user explicitly triggered via the stop button.
     // Timeout aborts fire on the internal controller, leaving abortController.signal intact.
     const isUserStop = err.name === 'AbortError' && abortController?.signal.aborted;
@@ -552,19 +621,22 @@ async function handleSend() {
  * Run the planner-driven LLM2 flow for one user turn.
  *
  * Sequence:
- *   1. Build the cost menu over the available tools (filtered by manifest).
- *   2. Call planContext (LLM1, GPT-5-nano) with the user prompt + manifest +
- *      change signals + cost menu. On any failure → defaultPlannerFailurePackage.
- *   3. Gather the chosen tools.
- *   4. Call askLLM2 (round 1).
- *   5. If round 1 returned request_more_context, gather the additional types,
- *      merge with the initial package, call askLLM2 (round 2). Max 1 retry.
+ *   1. Pre-extract DOM (if available) for an exact post-sanitization token count.
+ *   2. Build toolCostMenu (actual tools, for orchestrator) and plannerCostMenu
+ *      (abstract: none vs context_needed, for LLM1).
+ *   3. Call planContext (LLM1) — binary decision: none or context_needed.
+ *   4a. none → stream LLM2 directly. No tool gathering, no structured-output
+ *       protocol, no fallback loop. The protocol machinery only makes sense
+ *       when context is present and sufficiency needs evaluation.
+ *   4b. context_needed → pick the cheapest available tool from toolCostMenu,
+ *       gather it, call askLLM2 (round 1) with full structured-output protocol.
+ *   5. If round 1 returned request_more_context, gather additional types,
+ *      merge packages, call askLLM2 (round 2). Max 1 retry.
  *   6. If round 2 also returned request_more_context, force a degraded
  *      provide_answer with a short user-facing fallback message.
  *
- * Aborts: signal is propagated into planContext and askLLM2 (both pass it to
- * fetch). Inter-step throwIfAborted checks short-circuit if the user hits stop
- * between phases. gatherTools is local + fast; no signal plumbing in MVP.
+ * Aborts: signal is propagated into planContext and askLLM2. Inter-step
+ * throwIfAborted checks short-circuit if the user hits stop between phases.
  */
 async function runPlannerFlow({
   userPrompt,
@@ -577,54 +649,194 @@ async function runPlannerFlow({
   llm2Model,
   onChunk,
   resetBubble,
+  onLLM2Start,
   signal,
 }) {
   const llm2Provider = settings.provider;
   const llm2ApiKey   = getActiveApiKey(settings);
 
-  // Filter tools to those available for this manifest. The orchestrator picks
-  // the cost-menu options by intersecting ALLOWED_CONTEXT_TYPES with what's
-  // available - planner only ever sees what we can actually gather.
-  const availableTypes = ALLOWED_CONTEXT_TYPES.filter((t) => {
-    if (t === 'viewport_dom') return manifest?.domReliable !== false;
-    return true;
-  });
-  const costMenu = buildCostMenu(availableTypes, manifest, llm2Model);
+  // Actual context tools available for this manifest.
+  // viewport_dom excluded when domReliable is false (PDF viewers, canvas-dominant pages).
+  const actualToolTypes = ['viewport_dom', 'viewport_screenshot'].filter(
+    (t) => t !== 'viewport_dom' || manifest?.domReliable !== false
+  );
+
+  // Pre-extract the DOM now so the cost menu gets the exact post-sanitization
+  // token count rather than the manifest-based formula (which can be off by 50%+).
+  // executeScript is pure JS in the page — no API call, no cost, ~5-30ms.
+  // If the orchestrator ends up gathering viewport_dom, the result is reused;
+  // otherwise it is discarded.
+  let preExtractedDom = null;
+  if (actualToolTypes.includes('viewport_dom') && privacyStatus?.state === 'enabled' && manifest?.tabId) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: manifest.tabId },
+        func:   extractViewportDomInPage,
+      });
+      preExtractedDom = results?.[0]?.result ?? null;
+    } catch { /* non-fatal — gatherTools will re-extract if needed */ }
+  }
+
+  // Tool cost menu (actual tools) — used by the orchestrator to pick the
+  // cheapest tool and stored in telemetry for the cost-breakdown display.
+  const domTokenOverrides = preExtractedDom
+    ? { viewport_dom: estimateTextTokens(preExtractedDom.content?.length ?? 0) }
+    : {};
+  const toolCostMenu = buildCostMenu(actualToolTypes, manifest, llm2Model, domTokenOverrides);
+
+  // Select the best context tool. Default to cheapest, but prefer screenshot
+  // when the viewport is visually dominated: a large image is present, many
+  // images are visible, and there is little visible text. In those cases DOM
+  // extraction returns mostly nav/UI chrome rather than the content the user
+  // is actually looking at, so the token-cost difference is not meaningful.
+  const isVisuallyDominated =
+    manifest?.hasLargeVisibleImage === true &&
+    (manifest?.visibleImageCount ?? 0) > 5  &&
+    (manifest?.visibleTextLength ?? 0) < 2000;
+
+  const cheapestTool = toolCostMenu.length
+    ? toolCostMenu.reduce((min, e) => e.est_tokens <= min.est_tokens ? e : min)
+    : null;
+
+  const bestTool = (() => {
+    if (!toolCostMenu.length) return null;
+    if (isVisuallyDominated) {
+      const screenshot = toolCostMenu.find((e) => e.type === 'viewport_screenshot');
+      if (screenshot) return screenshot;
+    }
+    return cheapestTool;
+  })();
+
+  // Planner cost menu — two abstract options. LLM1 sees "context_needed" as a
+  // single line-item whose cost equals the tool we would actually gather.
+  // This gives the planner accurate cost information without exposing the DOM vs
+  // screenshot distinction that it no longer needs to make.
+  const plannerCostMenu = [
+    { type: 'none',           est_tokens: 0,                           est_cost_usd: 0 },
+    { type: 'context_needed', est_tokens: bestTool?.est_tokens  ?? 0,  est_cost_usd: bestTool?.est_cost_usd ?? 0 },
+  ];
+
+  // DOM-unreliable pages (PDFs, canvas, image viewers): the screenshot is the
+  // only source of truth and must be re-captured every turn because images are
+  // not stored in conversation history. Skip LLM1 — the decision is always
+  // context_needed → viewport_screenshot, with no routing benefit from the planner.
+  const skipPlanner = manifest?.domReliable === false;
 
   signal?.throwIfAborted?.();
 
-  // 1. Planner. planContext never throws on model-side issues - it returns a
-  // normalized decision (using the failure default when needed).
-  const planner = await planContext({
-    userPrompt,
-    manifest,
-    changeSignals,
-    costMenu,
-    conversationHasPriorTurns,
-    apiKey:                settings.openaiApiKey ?? '',
-    plannerModelId:        settings.plannerModelId ?? 'gpt-5-nano',
-    defaultFailurePackage: settings.defaultPlannerFailurePackage ?? ['viewport_dom', 'viewport_screenshot'],
-    signal,
-  });
+  let planner;
+  if (skipPlanner) {
+    planner = {
+      context_types:     ['context_needed'],
+      reason:            'DOM-unreliable page — screenshot re-captured every turn (images not in history)',
+      fallback_risk:     null,
+      rawResponse:       null,
+      validatedDecision: ['context_needed'],
+      finalUsedDecision: {
+        context_types: ['context_needed'],
+        reason:        'DOM-unreliable page — screenshot re-captured every turn (images not in history)',
+        fallback_risk: null,
+      },
+      parseOk:       true,
+      source:        'skipped-dom-unreliable',
+      promptVersion: 'n/a',
+      actualUsage:   null,
+      actualCostUSD: null,
+      latencyMs:     0,
+    };
+  } else {
+    // 1. Planner (LLM1). planContext never throws — returns a normalized decision.
+    planner = await planContext({
+      userPrompt,
+      manifest,
+      changeSignals,
+      costMenu:              plannerCostMenu,
+      conversationHasPriorTurns,
+      apiKey:                settings.openaiApiKey ?? '',
+      plannerModelId:        settings.plannerModelId ?? 'gpt-5-nano',
+      defaultFailurePackage: ['context_needed'],
+      signal,
+    });
+  }
 
   signal?.throwIfAborted?.();
 
-  // 2. Gather the chosen tools.
-  const ctx = { manifest, settings, privacyStatus, llm2Model };
-  const initialPackage = await gatherTools(planner.context_types, ctx);
+  const isNone = !skipPlanner && planner.context_types.includes('none');
+
+  // ── None path: no browser context needed, stream LLM2 directly ────────────
+  // Skips tool gathering and the structured-output protocol entirely because
+  // those exist to evaluate context sufficiency — irrelevant when there is none.
+  if (isNone) {
+    const nonePackage = emptyPackage();
+
+    // The annotation lets LLM2 answer confidently from history without wondering
+    // why no context was attached. Sent to the model but not stored in history.
+    const annotatedPrompt = conversationHasPriorTurns
+      ? `${userPrompt}\n\n[AutoGlance: page unchanged since last turn — answer from conversation history, no new context needed]`
+      : userPrompt;
+
+    onLLM2Start?.();
+    const round1StartedAt = performance.now();
+    let noneUsage = null;
+    let noneText  = '';
+    await streamMessage({
+      provider:     llm2Provider,
+      apiKey:       llm2ApiKey,
+      model:        llm2Model,
+      systemPrompt: SYSTEM_PROMPT,
+      history,
+      userText:     annotatedPrompt,
+      screenshot:   null,
+      signal,
+      onChunk: (chunk) => { noneText += chunk; onChunk?.(chunk); },
+      onUsage: (u)     => { noneUsage = u; },
+    });
+    const round1EndedAt = performance.now();
+
+    const pricing  = getPricing(llm2Model);
+    const noneCost = noneUsage && pricing
+      ? ((noneUsage.inputTokens  ?? 0) / 1_000_000) * pricing.inUSDPer1M
+      + ((noneUsage.outputTokens ?? 0) / 1_000_000) * pricing.outUSDPer1M
+      : null;
+
+    const finalAction = {
+      action:                  'provide_answer',
+      answer:                  noneText,
+      requested_context_types: [],
+      reason:                  null,
+      usage:                   noneUsage,
+      costUSD:                 noneCost,
+      latencyMs:               Math.round(round1EndedAt - round1StartedAt),
+      provider:                llm2Provider,
+      model:                   llm2Model,
+      rawResponse:             noneText,
+      source:                  'direct-stream',
+    };
+
+    return {
+      planner,
+      costMenu:          plannerCostMenu,
+      toolCostMenu,
+      initialPackage:    nonePackage,
+      requestedPackage:  null,
+      finalPackage:      nonePackage,
+      finalAction,
+      fallbackUsed:      false,
+      fallbackRequested: null,
+      llm2Round1:        { action: finalAction, latencyMs: round1EndedAt - round1StartedAt },
+      llm2Round2:        null,
+    };
+  }
+
+  // ── Context path: pick best tool, gather, orchestrate ────────────────────
+  const chosenToolType = bestTool?.type ?? 'viewport_screenshot';
+  const ctx = { manifest, settings, privacyStatus, llm2Model, preExtractedDom };
+  const initialPackage = await gatherTools([chosenToolType], ctx);
 
   signal?.throwIfAborted?.();
 
-  // When the planner chose "none" and prior turns exist, LLM2 cannot see the
-  // change signals that justified the choice. Without this note it reasons
-  // "no context was provided → maybe the page changed → request screenshot."
-  // Telling it the planner's conclusion lets it trust conversation history.
-  const isPureNone = planner.context_types.every((t) => t === 'none');
-  const llm2UserPrompt = (isPureNone && conversationHasPriorTurns)
-    ? `${userPrompt}\n\n[AutoGlance: page unchanged since last turn — answer from conversation history, no new context needed]`
-    : userPrompt;
-
-  // 3. Round 1 LLM2.
+  // Round 1 LLM2.
+  onLLM2Start?.();
   const round1StartedAt = performance.now();
   const action1 = await askLLM2({
     provider:     llm2Provider,
@@ -632,7 +844,7 @@ async function runPlannerFlow({
     model:        llm2Model,
     systemPrompt: SYSTEM_PROMPT,
     history,
-    userPrompt:   llm2UserPrompt,
+    userPrompt,
     package:      initialPackage,
     signal,
     onChunk,
@@ -649,7 +861,7 @@ async function runPlannerFlow({
   const maxFallbacks = settings.plannerMaxFallbacks ?? 1;
 
   if (action1.action === 'request_more_context' && maxFallbacks >= 1) {
-    fallbackUsed = true;
+    fallbackUsed      = true;
     fallbackRequested = action1.requested_context_types;
 
     signal?.throwIfAborted?.();
@@ -661,11 +873,11 @@ async function runPlannerFlow({
     // Gather additional tools and merge with the initial package so LLM2 sees
     // both. Tool dedup inside gatherTools means re-requested types are no-ops.
     requestedPackage = await gatherTools(action1.requested_context_types, ctx);
-    finalPackage = combinePackages([initialPackage, requestedPackage]);
+    finalPackage     = combinePackages([initialPackage, requestedPackage]);
 
     signal?.throwIfAborted?.();
 
-    // 4. Round 2 LLM2.
+    // Round 2 LLM2.
     const round2StartedAt = performance.now();
     const action2 = await askLLM2({
       provider:     llm2Provider,
@@ -682,9 +894,8 @@ async function runPlannerFlow({
     llm2Round2 = { action: action2, latencyMs: round2EndedAt - round2StartedAt };
 
     if (action2.action === 'request_more_context') {
-      // Spec: second consecutive request_more_context → force provide_answer.
-      // Synthesize a degraded answer; the chip records source: 'raw-degrade'
-      // and fallbackUsed: true so the user can see what happened.
+      // Second consecutive request_more_context → force provide_answer.
+      // Chip records source: 'raw-degrade' and fallbackUsed: true.
       resetBubble?.();
       const fallbackText = "(I couldn't gather enough browser context to answer this confidently. Try rephrasing, scrolling to the relevant area, or asking about something visible on screen.)";
       finalAction = degradeToProvideAnswer({
@@ -704,7 +915,8 @@ async function runPlannerFlow({
 
   return {
     planner,
-    costMenu,
+    costMenu:         plannerCostMenu,
+    toolCostMenu,
     initialPackage,
     requestedPackage,
     finalPackage,
@@ -796,7 +1008,7 @@ function updatePrivacyUI(privacyOverride) {
   const badgeClasses = { enabled: 'context-badge--active', blocked: 'context-badge--blocked', disabled: 'context-badge--disabled' };
   contextBadge.className = `context-badge ${badgeClasses[state] ?? ''}`;
 
-  const badgeTexts = { enabled: ' With browser context', blocked: ' Private (protected)', disabled: ' Private' };
+  const badgeTexts = { enabled: ' With browser context', blocked: ' Unable to view this page, either due to privacy concerns or because of Google Chrome\'s screen capture policy. Please try a different page.', disabled: ' Private' };
   contextBadge.lastChild.textContent = badgeTexts[state] ?? '';
 
   inputArea.classList.toggle('mode-enabled',  state === 'enabled');
@@ -828,6 +1040,26 @@ function updatePlannerToggleUI() {
   const on = !!settings._internalUsePlannerFlow;
   plannerToggle.setAttribute('aria-pressed', String(on));
   plannerToggle.title = on ? 'Planner: ON – smart context routing' : 'Planner: OFF – legacy screenshot';
+}
+
+async function toggleShadowOldFlow() {
+  settings._internalShadowOldFlow = !settings._internalShadowOldFlow;
+  await saveSettings({ _internalShadowOldFlow: settings._internalShadowOldFlow });
+  updateShadowToggleUI();
+}
+
+function updateShadowToggleUI() {
+  const on = !!settings._internalShadowOldFlow;
+  shadowToggle.setAttribute('aria-pressed', String(on));
+  shadowToggle.title = on
+    ? 'Shadow: ON – running real old-flow call for cost comparison (doubles API cost)'
+    : 'Shadow: OFF – old-flow cost is estimated';
+}
+
+function updateDevModeUI() {
+  const dev = !!settings.developerTelemetry;
+  plannerToggle.classList.toggle('hidden', !dev);
+  shadowToggle.classList.toggle('hidden', !dev);
 }
 
 // ── Controls Bar (provider + model) ───────────────────────────────────────
@@ -970,18 +1202,27 @@ function appendErrorBubble(message) {
   scrollToBottom();
 }
 
-function appendTypingIndicator() {
+function appendStatusIndicator() {
   const row = document.createElement('div');
   row.className = 'message-row message-row--assistant';
   row.innerHTML = `
-    <div class="typing-indicator">
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
+    <div class="status-indicator">
+      <span class="status-indicator__label">Taking a glance</span>
+      <div class="status-indicator__dots">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
     </div>`;
   messagesEl.appendChild(row);
   scrollToBottom();
-  return row;
+  return {
+    setPhase(phase) {
+      const label = row.querySelector('.status-indicator__label');
+      if (label) label.textContent = phase === 'thinking' ? 'Thinking' : 'Taking a glance';
+    },
+    remove() { row.remove(); },
+  };
 }
 
 // ── Telemetry chip & drawer ───────────────────────────────────────────────
@@ -1023,14 +1264,9 @@ function appendTelemetryChip(rowEl, record) {
  */
 function appendPrivacyBlockedBadge(rowEl, privacyStatus) {
   if (!rowEl) return;
-  const reason = privacyStatus?.category === 'internal'
-    ? 'Glance off this turn – browser-internal page'
-    : privacyStatus?.category === 'blocklist'
-      ? 'Glance off this turn – blocked domain'
-      : 'Glance off this turn – privacy block';
   const el = document.createElement('div');
   el.className = 'privacy-blocked-badge';
-  el.textContent = `🔒 ${reason}`;
+  el.textContent = '🔒 Unable to view this page, either due to privacy concerns or because of Google Chrome\'s screen capture policy. Please try a different page.';
   rowEl.appendChild(el);
 }
 
@@ -1038,7 +1274,12 @@ function buildChipText(record) {
   const totals  = record.totals  ?? {};
   const llm2    = record.llm2    ?? {};
   const planner = record.planner;
-  const pkg     = (record.package?.chosenTools ?? []).join(' + ') || 'none';
+  // Use finalTools (actual tool gathered) for the chip label; fall back to
+  // chosenTools (planner decision: none / context_needed) when no tool was gathered.
+  const pkgTools = record.package?.finalTools?.length
+    ? record.package.finalTools
+    : (record.package?.chosenTools ?? []);
+  const pkg = pkgTools.join(' + ') || 'none';
 
   let primary = '—';
   let toneClass = '';
@@ -1072,6 +1313,7 @@ function buildChipText(record) {
 function buildDrawerInnerHtml(record) {
   const totals    = record.totals  ?? {};
   const baseline  = record.oldFlowBaseline ?? null;
+  const shadow    = record.shadowOldFlow   ?? null;
   const llm2      = record.llm2    ?? {};
   const planner   = record.planner ?? null;
   const pkg       = record.package ?? {};
@@ -1145,7 +1387,39 @@ function buildDrawerInnerHtml(record) {
     ].join('\n');
   }
 
-  const r1ContextText = io
+  // Build routing I/O panel text shown between planner output and context gathered.
+  let routingPanelText = null;
+  if (io && planner) {
+    const routingDecision = (pkg.chosenTools ?? []).join(', ') || 'none';
+    const toolCostMenuIo  = io.toolCostMenu ?? [];
+    const chosenToolName  = pkg.finalTools?.[0] ?? null;
+    const routingLines    = [
+      `Decision:      ${routingDecision}`,
+      `Reason:        ${planner.finalUsedDecision?.reason ?? '—'}`,
+    ];
+    if (planner.finalUsedDecision?.fallback_risk != null) {
+      routingLines.push(`Fallback risk: ${planner.finalUsedDecision.fallback_risk}`);
+    }
+    if (routingDecision === 'none') {
+      routingLines.push('');
+      routingLines.push('Streaming LLM2 directly — no tool gathered.');
+    } else if (toolCostMenuIo.length > 0) {
+      routingLines.push('');
+      routingLines.push('Tool cost comparison:');
+      for (const entry of toolCostMenuIo) {
+        const isChosen = entry.type === chosenToolName;
+        const tok  = entry.est_tokens  != null ? `${String(entry.est_tokens).padStart(5)} tok` : '    — tok';
+        const cost = entry.est_cost_usd != null ? `  ($${entry.est_cost_usd.toFixed(5)})` : '';
+        const mark = isChosen ? '  ← chosen' : '';
+        routingLines.push(`  ${entry.type.padEnd(22)}${tok}${cost}${mark}`);
+      }
+    }
+    routingPanelText = routingLines.join('\n');
+  }
+
+  // Skip the "Context gathered" panel when none path was taken (no tool gathered).
+  const r1HasContent = io && (io.r1PackageTypes?.length > 0 || io.r1ImageCount > 0);
+  const r1ContextText = r1HasContent
     ? buildContextPanelText(io.r1PackageTypes, io.r1PackageText, io.r1ImageCount)
     : null;
   const r1ResponseText = io
@@ -1158,11 +1432,130 @@ function buildDrawerInnerHtml(record) {
     ? buildResponsePanelText(io.r2Action, io.r2RawResponse, null, null)
     : null;
 
+  // Output-size comparison: new-flow final answer vs shadow old-flow answer.
+  const newFlowFinalText  = io?.r2RawResponse ?? io?.r1RawResponse ?? null;
+  const newFlowOutputChars  = newFlowFinalText  != null ? newFlowFinalText.length  : null;
+  const shadowOutputChars   = shadow?.outputText != null ? shadow.outputText.length : null;
+  let outputSizeRow = '';
+  if (newFlowOutputChars != null && shadowOutputChars != null) {
+    const diff    = newFlowOutputChars - shadowOutputChars;
+    const absDiff = Math.abs(diff);
+    const pct     = shadowOutputChars > 0 ? ((diff / shadowOutputChars) * 100).toFixed(1) : null;
+    const direction = diff < 0 ? 'shorter' : diff > 0 ? 'longer' : 'same';
+    const cls     = diff < 0 ? 'telemetry-row__value--positive'
+                  : diff > 0 ? 'telemetry-row__value--negative'
+                  :             'telemetry-row__value--muted';
+    const deltaLabel = diff === 0 ? 'same length'
+      : `${absDiff} chars ${direction}${pct != null ? ` (${pct}%)` : ''}`;
+    outputSizeRow = `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Output chars (new / shadow)</span>
+        <span class="telemetry-row__value">${escTel(`${newFlowOutputChars} / ${shadowOutputChars}`)}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Output size delta</span>
+        <span class="telemetry-row__value ${cls}">${escTel(deltaLabel)}</span>
+      </div>`;
+  }
+
+  // Clean routing delta: cost saving attributable purely to context routing,
+  // with output-length variance factored out.
+  //
+  // raw_delta = shadow.actualCostUSD - newFlow.totalCostUSD
+  //   (positive = new flow saved money)
+  //
+  // output_variance_cost = (shadow.outputTokens - llm2.outputTokens) × outRate/1M
+  //   (the portion of raw_delta explained by the shadow producing more output)
+  //
+  // clean_routing_delta = raw_delta - output_variance_cost
+  //   (what we'd save if both flows produced identical output length)
+  let cleanRoutingRow = '';
+  const llm2Pricing = getPricing(llm2.modelId ?? null);
+  const shadowActualCost = shadow?.actualCostUSD ?? null;
+  const newFlowTotal     = totals.actualCostUSD   ?? null;
+  const shadowOutTok     = shadow?.actualOutputTokens ?? null;
+  const newFlowOutTok    = llm2.actualOutputTokens    ?? null;
+  if (
+    llm2Pricing && shadowActualCost != null && newFlowTotal != null &&
+    shadowOutTok != null && newFlowOutTok != null
+  ) {
+    const rawDelta          = shadowActualCost - newFlowTotal;
+    const outVarianceCost   = ((shadowOutTok - newFlowOutTok) / 1_000_000) * llm2Pricing.outUSDPer1M;
+    const cleanDelta        = rawDelta - outVarianceCost;
+    const cleanDeltaSign    = cleanDelta >= 0 ? '+' : '-';
+    const cleanDeltaAbs     = Math.abs(cleanDelta);
+    const cleanDeltaPct     = shadowActualCost > 0
+      ? ((cleanDelta / shadowActualCost) * 100).toFixed(1) : null;
+    const cleanCls  = cleanDelta >= 0 ? 'telemetry-row__value--positive' : 'telemetry-row__value--negative';
+    const cleanText = `${cleanDeltaSign}${formatCost(cleanDeltaAbs)}${cleanDeltaPct != null ? ` (${cleanDeltaPct}%)` : ''}`;
+    const outVarSign = outVarianceCost >= 0 ? '+' : '-';
+    cleanRoutingRow = `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Clean routing delta</span>
+        <span class="telemetry-row__value ${cleanCls}">${escTel(cleanText)}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Output variance cost</span>
+        <span class="telemetry-row__value telemetry-row__value--muted">${escTel(`${outVarSign}${formatCost(Math.abs(outVarianceCost))}`)}</span>
+      </div>`;
+  }
+
   return `
     <div class="telemetry-section">
       <div class="telemetry-section__title">Flow</div>
       <div class="telemetry-row telemetry-row--flow">${escTel(flowPath)}</div>
     </div>
+
+    ${planner ? (() => {
+      const routingDecision = (pkg.chosenTools ?? []).join(', ') || '—';
+      const routingReason   = planner.finalUsedDecision?.reason ?? '—';
+      const fallbackRisk    = planner.finalUsedDecision?.fallback_risk;
+      const toolCostMenuIo  = io?.toolCostMenu ?? [];
+      const chosenToolName  = pkg.finalTools?.[0] ?? null;
+
+      const toolRows = toolCostMenuIo.map((entry) => {
+        const isChosen = entry.type === chosenToolName;
+        const tok  = entry.est_tokens  != null ? `${entry.est_tokens} tok` : '— tok';
+        const cost = entry.est_cost_usd != null ? `  ($${entry.est_cost_usd.toFixed(5)})` : '';
+        const mark = isChosen ? '  ← chosen' : '';
+        return `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">${escTel(entry.type)}</span>
+        <span class="telemetry-row__value${isChosen ? ' telemetry-row__value--positive' : ''}">${escTel(tok + cost + mark)}</span>
+      </div>`;
+      }).join('');
+
+      const pre  = pkg.preGatherEstTokens ?? null;
+      const post = pkg.estTokens ?? 0;
+      let ctxTokRow = '';
+      if (post > 0) {
+        const diff = pre != null ? post - pre : null;
+        const pct  = (pre != null && pre > 0) ? ((diff / pre) * 100).toFixed(0) : null;
+        const cls  = diff == null ? '' : diff < 0 ? 'telemetry-row__value--positive' : 'telemetry-row__value--negative';
+        const diffLabel = diff == null ? '' : ` (${diff > 0 ? '+' : ''}${diff} tok${pct != null ? `, ${pct}%` : ''})`;
+        ctxTokRow = `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Context tok (est → actual)</span>
+        <span class="telemetry-row__value ${cls}">${escTel(pre != null ? `${pre} → ${post}${diffLabel}` : `${post} tok`)}</span>
+      </div>`;
+      }
+
+      return `
+    <div class="telemetry-section">
+      <div class="telemetry-section__title">Routing</div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">LLM1 decision</span>
+        <span class="telemetry-row__value">${escTel(routingDecision)}</span>
+      </div>
+      ${fallbackRisk != null ? `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Fallback risk</span>
+        <span class="telemetry-row__value">${escTel(String(fallbackRisk))}</span>
+      </div>` : ''}
+      ${toolRows}
+      ${ctxTokRow}
+    </div>`;
+    })() : ''}
 
     <div class="telemetry-section">
       <div class="telemetry-section__title">Cost</div>
@@ -1170,10 +1563,36 @@ function buildDrawerInnerHtml(record) {
         <span class="telemetry-row__label">Old-flow estimate</span>
         <span class="telemetry-row__value">${escTel(formatCost(baseline?.estCostUSD))}</span>
       </div>
+      ${shadow?.actualCostUSD != null ? `
       <div class="telemetry-row">
-        <span class="telemetry-row__label">${planner ? 'New-flow actual' : 'Actual'}</span>
-        <span class="telemetry-row__value">${escTel(formatCost(totals.actualCostUSD))}</span>
+        <span class="telemetry-row__label">Old-flow actual ⚡</span>
+        <span class="telemetry-row__value">${escTel(formatCost(shadow.actualCostUSD))}</span>
       </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Old-flow tokens ⚡ (in / out)</span>
+        <span class="telemetry-row__value">${escTel(`${shadow.actualInputTokens ?? '—'} / ${shadow.actualOutputTokens ?? '—'}`)}</span>
+      </div>` : ''}
+      ${planner ? `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">LLM1 actual</span>
+        <span class="telemetry-row__value">${escTel(formatCost(planner.actualCostUSD))}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">LLM2 actual</span>
+        <span class="telemetry-row__value">${escTel(formatCost(llm2.actualCostUSD))}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">LLM2 tokens (in / out)</span>
+        <span class="telemetry-row__value">${escTel(`${llm2.actualInputTokens ?? '—'} / ${llm2.actualOutputTokens ?? '—'}`)}</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">New-flow total</span>
+        <span class="telemetry-row__value">${escTel(formatCost(totals.actualCostUSD))}</span>
+      </div>` : `
+      <div class="telemetry-row">
+        <span class="telemetry-row__label">Actual</span>
+        <span class="telemetry-row__value">${escTel(formatCost(totals.actualCostUSD))}</span>
+      </div>`}
       <div class="telemetry-row">
         <span class="telemetry-row__label">Δ vs old flow</span>
         <span class="telemetry-row__value ${deltaClass}">${escTel(deltaText)}</span>
@@ -1182,6 +1601,8 @@ function buildDrawerInnerHtml(record) {
         <span class="telemetry-row__label">% vs old flow</span>
         <span class="telemetry-row__value ${deltaPctClass}">${escTel(deltaPctText)}</span>
       </div>
+      ${outputSizeRow}
+      ${cleanRoutingRow}
       ${planner ? '' : '<div class="telemetry-section__notes">Calibration mode — planner not running. New flow lights up here once enabled.</div>'}
     </div>
 
@@ -1199,16 +1620,12 @@ function buildDrawerInnerHtml(record) {
         <span class="telemetry-row__label">Error</span>
         <span class="telemetry-row__value">${escTel(errorPercent)}</span>
       </div>
-      <div class="telemetry-row">
-        <span class="telemetry-row__label">Tokens (in / out)</span>
-        <span class="telemetry-row__value">${escTel(`${llm2.actualInputTokens ?? '—'} / ${llm2.actualOutputTokens ?? '—'}`)}</span>
-      </div>
     </div>
 
     <div class="telemetry-section">
-      <div class="telemetry-section__title">Decisions</div>
+      <div class="telemetry-section__title">Page</div>
       <div class="telemetry-row">
-        <span class="telemetry-row__label">Page</span>
+        <span class="telemetry-row__label">Title</span>
         <span class="telemetry-row__value">${escTel(summary?.title || summary?.url || '—')}</span>
       </div>
       <div class="telemetry-row">
@@ -1234,15 +1651,6 @@ function buildDrawerInnerHtml(record) {
         <span class="telemetry-row__label">Time since last turn</span>
         <span class="telemetry-row__value">${escTel(msSinceLast)}</span>
       </div>
-      <div class="telemetry-row">
-        <span class="telemetry-row__label">Package</span>
-        <span class="telemetry-row__value">${escTel((pkg.chosenTools ?? []).join(' + ') || 'none')}</span>
-      </div>
-      ${planner ? `
-      <div class="telemetry-row">
-        <span class="telemetry-row__label">Planner reason</span>
-        <span class="telemetry-row__value">${escTel(planner.finalUsedDecision?.reason ?? '—')}</span>
-      </div>` : ''}
     </div>
 
     <div class="telemetry-section">
@@ -1285,6 +1693,12 @@ function buildDrawerInnerHtml(record) {
         )}</pre>
       </details>` : ''}
 
+      ${routingPanelText != null ? `
+      <details class="telemetry-io">
+        <summary>Routing: tool selection</summary>
+        <pre class="telemetry-io-content">${escTel(routingPanelText)}</pre>
+      </details>` : ''}
+
       ${r1ContextText != null ? `
       <details class="telemetry-io">
         <summary>Context gathered — round 1</summary>
@@ -1307,6 +1721,18 @@ function buildDrawerInnerHtml(record) {
       <details class="telemetry-io">
         <summary>LLM2 round 2 response (fallback)</summary>
         <pre class="telemetry-io-content">${escTel(r2ResponseText)}</pre>
+      </details>` : ''}
+
+      ${shadow?.outputText != null ? `
+      <details class="telemetry-io">
+        <summary>Shadow (old flow) input</summary>
+        <pre class="telemetry-io-content">User: "${escTel((shadow.inputUserText ?? '').slice(0, 500))}"
+
+[context: viewport_screenshot — old flow always attaches a screenshot]</pre>
+      </details>
+      <details class="telemetry-io">
+        <summary>Shadow (old flow) output</summary>
+        <pre class="telemetry-io-content">${escTel(shadow.outputText)}</pre>
       </details>` : ''}
     </div>
     ` : ''}
@@ -1348,14 +1774,24 @@ function previewPackageText(pkg, cap = 2000) {
 }
 
 function buildFlowPath(record) {
-  const io = record.io ?? {};
+  const io  = record.io      ?? {};
+  const pkg = record.package ?? {};
   if (record.flow !== 'planner') {
-    const tools = (record.package?.chosenTools ?? []).join(' + ') || 'none';
+    const tools = (pkg.finalTools?.length ? pkg.finalTools : pkg.chosenTools ?? []).join(' + ') || 'none';
     return `legacy → ${tools} → LLM2`;
   }
+  const plannerDecision = (pkg.chosenTools ?? []).join('') || 'none';
+  const plannerSource   = record.planner?.source ?? null;
+  // none path: LLM2 was called directly without tool gathering or the
+  // structured-output protocol.
+  if (plannerDecision === 'none') {
+    return 'LLM1 → none → LLM2 direct';
+  }
+  // context_needed path: orchestrator picked the cheapest tool.
   const r1Types  = (io.r1PackageTypes ?? []).join(' + ') || 'none';
   const r1Action = io.r1Action;
-  let path = `LLM1 → gather: ${r1Types} → LLM2 r1`;
+  const prefix   = plannerSource === 'skipped-dom-unreliable' ? 'direct' : 'LLM1';
+  let path = `${prefix} → ${plannerDecision} → gather: ${r1Types} → LLM2 r1`;
   if (r1Action === 'provide_answer') {
     path += ' → answer';
   } else if (r1Action === 'request_more_context') {

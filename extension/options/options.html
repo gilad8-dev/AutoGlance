@@ -136,18 +136,26 @@
           <p class="field-hint">Screenshots wider than this will be resized before sending.</p>
         </div>
 
+      </section>
+
+      <!-- ── Developer ── -->
+      <section class="section">
+        <h2 class="section-title">Developer</h2>
+        <p class="section-desc">Tools for testing and calibrating the planner. Turn off for a clean production-like experience.</p>
+
         <div class="field">
           <label class="toggle-row">
             <div>
-              <span class="label">Telemetry chip</span>
-              <p class="field-hint">Show a per-message chip with cost, latency, and the planner's decision. Local only - never sent anywhere.</p>
+              <span class="label">Developer telemetry</span>
+              <p class="field-hint">When ON: extra testing controls appear in the chat bar and a diagnostic panel (cost, latency, routing details) is shown after each response. When OFF: the interface is clean and everything runs automatically in the background.</p>
             </div>
             <div class="toggle-wrapper">
-              <input type="checkbox" id="show-telemetry" class="toggle-input" />
-              <label for="show-telemetry" class="toggle-track"><span class="toggle-thumb"></span></label>
+              <input type="checkbox" id="developer-telemetry" class="toggle-input" />
+              <label for="developer-telemetry" class="toggle-track"><span class="toggle-thumb"></span></label>
             </div>
           </label>
         </div>
+
       </section>
 
       <!-- ── Privacy / Blocklist ── -->
