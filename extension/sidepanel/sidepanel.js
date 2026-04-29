@@ -61,6 +61,7 @@ const inputArea        = document.querySelector('.input-area');
 const privacyBar       = $('privacy-bar');
 const privacyLabel     = $('privacy-label');
 const apiKeyWarning    = $('api-key-warning');
+const setupHero        = $('setup-hero');
 const contextBadge     = $('context-badge');
 const providerToggle   = $('provider-toggle');
 const modelSelect      = $('model-select');
@@ -79,6 +80,7 @@ async function init() {
   updateShadowToggleUI();
   updateDevModeUI();
   checkApiKeyWarning();
+  checkSetupHero();
 
   onSettingsChanged((changed) => {
     Object.assign(settings, changed);
@@ -102,6 +104,7 @@ async function init() {
     updateShadowToggleUI();
     updateDevModeUI();
     checkApiKeyWarning();
+    checkSetupHero();
   });
 }
 
@@ -141,6 +144,10 @@ function bindEvents() {
   modelSelect.addEventListener('change', handleModelChange);
 
   $('warning-settings-btn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
+  });
+
+  $('hero-settings-btn').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
   });
 
@@ -1200,6 +1207,10 @@ function checkApiKeyWarning() {
     const warningText = apiKeyWarning.querySelector('.warning-text p');
     if (warningText) warningText.textContent = `Add a ${providerLabel} API key in Settings to start chatting.`;
   }
+}
+
+function checkSetupHero() {
+  document.body.classList.toggle('setup-mode', !settings.openaiApiKey);
 }
 
 // ── Conversation UI ───────────────────────────────────────────────────────

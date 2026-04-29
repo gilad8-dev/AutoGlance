@@ -42,7 +42,7 @@
     <span id="privacy-label" class="privacy-label">Glance on</span>
   </div>
 
-  <!-- ── API Key Warning (shown when no key configured) ──── -->
+  <!-- ── API Key Warning (shown when no key for active chat provider) ── -->
   <div id="api-key-warning" class="api-key-warning hidden">
     <div class="warning-icon" aria-hidden="true">⚠</div>
     <div class="warning-text">
@@ -52,11 +52,71 @@
     <button id="warning-settings-btn" class="warning-btn">Open Settings</button>
   </div>
 
+  <!-- ── Setup Hero (shown until OpenAI key is connected) ──────────── -->
+  <div id="setup-hero" class="setup-hero">
+    <div class="hero-inner">
+
+      <div class="hero-brand">
+        <h1 class="hero-title">Welcome to AutoGlance</h1>
+      </div>
+
+      <div class="hero-steps-wrapper">
+
+        <div class="steps-group">
+          <div class="steps-group-header">
+            <span class="steps-group-num" aria-hidden="true">1</span>
+            <span class="steps-group-label">Get your API key</span>
+          </div>
+          <ol class="steps-list">
+            <li>Open <a href="https://platform.openai.com" target="_blank" rel="noopener noreferrer" class="steps-link">platform.openai.com</a></li>
+            <li>Sign in or create an account</li>
+            <li>In the left menu, click <strong>API keys</strong></li>
+            <li>Click <strong>Create API key</strong></li>
+            <li>Give it a name and click <strong>Create secret key</strong></li>
+            <li>Copy the key</li>
+          </ol>
+        </div>
+
+        <div class="steps-divider" aria-hidden="true"></div>
+
+        <div class="steps-group">
+          <div class="steps-group-header">
+            <span class="steps-group-num" aria-hidden="true">2</span>
+            <span class="steps-group-label">Add it to AutoGlance</span>
+          </div>
+          <ol class="steps-list" start="7">
+            <li>Click the gear icon
+              <span class="steps-icon-chip" aria-label="gear icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </span>
+              at the top of this sidebar
+            </li>
+            <li>Paste the key under <strong>OpenAI → API key</strong></li>
+            <li>Click <strong>Apply API key</strong> and wait for <em>"Key saved &amp; connected"</em></li>
+          </ol>
+          <p class="steps-note">If the key doesn't work, double-check you copied it fully, or generate a new one and try again.</p>
+        </div>
+
+      </div>
+
+      <button id="hero-settings-btn" class="hero-cta">
+        Open Settings
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+          <path d="M3 8h10M9 4l4 4-4 4"/>
+        </svg>
+      </button>
+
+    </div>
+  </div>
+
   <!-- ── Message Feed ────────────────────────────────────── -->
   <main id="messages" class="messages" role="log" aria-live="polite" aria-label="Conversation">
     <div class="welcome">
       <h1 class="welcome-greeting">Hello. <em>What are you looking at?</em></h1>
-      <p>I'm AutoGlance, a browser companion with a view. Ask me about anything on this page and I'll see what I can do.</p>
+      <p>I'm AutoGlance.<br>Ask me about anything on this page and I'll see what I can do.</p>
       <div class="welcome-suggestions">
         <button class="suggestion-chip" data-text="What am I looking at?">What am I looking at?</button>
         <button class="suggestion-chip" data-text="Summarize this page for me.">Summarize this page</button>
