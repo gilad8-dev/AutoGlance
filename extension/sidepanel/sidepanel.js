@@ -29,6 +29,11 @@ let currentTab = null;
 let isStreaming = false;
 let abortController = null;
 
+// In-session glance state: true = glance active this session.
+// Controlled by the sidebar toggle; does NOT write to storage.
+// Resets when settings.glanceEnabled is turned OFF or the OpenAI key is removed.
+let glanceSessionActive = false;
+
 /** Each entry: { role: 'user'|'assistant', textContent: string } */
 let conversationHistory = [];
 
@@ -64,6 +69,7 @@ const modelSelect      = $('model-select');
 
 async function init() {
   settings = await getSettings();
+  glanceSessionActive = settings.glanceEnabled && !!settings.openaiApiKey;
   await refreshTabInfo();
   bindEvents();
   renderControlsBar();
@@ -76,6 +82,19 @@ async function init() {
 
   onSettingsChanged((changed) => {
     Object.assign(settings, changed);
+
+    // Sync session state with persistent settings changes
+    if ('glanceEnabled' in changed) {
+      if (!changed.glanceEnabled) {
+        glanceSessionActive = false;  // settings turned OFF → kill session
+      } else if (!!settings.openaiApiKey) {
+        glanceSessionActive = true;   // settings turned ON → activate session
+      }
+    }
+    if ('openaiApiKey' in changed && !changed.openaiApiKey) {
+      glanceSessionActive = false;    // key removed → kill session
+    }
+
     renderControlsBar();
     updatePrivacyUI();
     updateGlanceToggleUI();
@@ -136,6 +155,14 @@ function bindEvents() {
   });
 
   window.addEventListener('focus', refreshTabInfo);
+
+  // Auto-update the glancability badge when the user switches tabs or the
+  // active tab navigates to a new URL.
+  chrome.tabs.onActivated.addListener(() => refreshTabInfo());
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (!tab.active || changeInfo.status !== 'complete') return;
+    refreshTabInfo();
+  });
 
   // Delegated copy button handler for code blocks
   document.getElementById('messages').addEventListener('click', (e) => {
@@ -235,7 +262,7 @@ async function handleSend() {
     //   3. Internal rollout flag for the planner-driven flow
     // useNewFlow requires all three. Otherwise we run the legacy single-shot
     // screenshot path, which is unchanged from prior behavior.
-    const glanceCanInspect = settings.glanceEnabled && privacyStatus.state === 'enabled';
+    const glanceCanInspect = glanceSessionActive && privacyStatus.state === 'enabled';
     // In dev mode the planner is gated by its own toggle (_internalUsePlannerFlow).
     // In production mode (developerTelemetry off) the planner always follows Glance.
     let useNewFlow = glanceCanInspect && (settings.developerTelemetry ? !!settings._internalUsePlannerFlow : true);
@@ -281,7 +308,7 @@ async function handleSend() {
         })
       : null;
 
-    const telemetryEnabled = settings.developerTelemetry && glanceCanInspect;
+    const telemetryEnabled = settings.developerTelemetry && glanceSessionActive && privacyStatus.state === 'enabled';
     const turnId = telemetryEnabled
       ? telemetryStart({
           flow:            useNewFlow ? 'planner' : 'legacy',
@@ -583,7 +610,7 @@ async function handleSend() {
         telemetryMarkEnd(turnId);
         const finalRecord = telemetryFinalize(turnId);
         appendTelemetryChip(assistantRowEl, finalRecord);
-      } else if (settings.glanceEnabled && privacyStatus.state === 'blocked') {
+      } else if (glanceSessionActive && privacyStatus.state === 'blocked') {
         // Glance was on but the URL was blocked - explain why no context ran.
         appendPrivacyBlockedBadge(assistantRowEl, privacyStatus);
       }
@@ -975,7 +1002,7 @@ async function captureScreenshot() {
 // ── Privacy ───────────────────────────────────────────────────────────────
 
 function computePrivacyStatus() {
-  if (!settings.glanceEnabled) return { state: 'disabled' };
+  if (!glanceSessionActive) return { state: 'disabled' };
   if (!currentTab?.url) return { state: 'disabled' };
   const status = getPrivacyStatus(currentTab.url, settings.blockedDomains);
   return status.blocked ? { state: 'blocked', category: status.category } : { state: 'enabled' };
@@ -1016,18 +1043,30 @@ function updatePrivacyUI(privacyOverride) {
   inputArea.classList.toggle('mode-disabled', state === 'disabled');
 }
 
-async function toggleGlance() {
-  settings.glanceEnabled = !settings.glanceEnabled;
-  await saveSettings({ glanceEnabled: settings.glanceEnabled });
+function toggleGlance() {
+  // Locked when no key or settings master switch is OFF.
+  if (!settings.openaiApiKey || !settings.glanceEnabled) return;
+  glanceSessionActive = !glanceSessionActive;
   updateGlanceToggleUI();
   updatePrivacyUI();
 }
 
 function updateGlanceToggleUI() {
-  glanceToggle.classList.toggle('active', settings.glanceEnabled);
-  glanceToggle.classList.toggle('inactive', !settings.glanceEnabled);
-  glanceToggle.setAttribute('aria-pressed', String(settings.glanceEnabled));
-  glanceToggle.title = settings.glanceEnabled ? 'Glance: ON – click to disable' : 'Glance: OFF – click to enable';
+  const hasKey = !!settings.openaiApiKey;
+  const locked = !hasKey || !settings.glanceEnabled;
+
+  glanceToggle.classList.toggle('active',   glanceSessionActive);
+  glanceToggle.classList.toggle('inactive', !glanceSessionActive);
+  glanceToggle.classList.toggle('locked',   locked);
+  glanceToggle.setAttribute('aria-pressed', String(glanceSessionActive));
+
+  if (!hasKey) {
+    glanceToggle.title = 'OpenAI API key required — add one in Settings';
+  } else if (!settings.glanceEnabled) {
+    glanceToggle.title = 'Glance is disabled — enable it in Settings to use this feature';
+  } else {
+    glanceToggle.title = glanceSessionActive ? 'Glance: ON – click to pause' : 'Glance: paused – click to resume';
+  }
 }
 
 async function togglePlannerFlow() {

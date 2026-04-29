@@ -1266,6 +1266,12 @@ button {
 .input-area.mode-enabled .planner-toggle[aria-pressed="true"],
 .input-area.mode-enabled .shadow-toggle[aria-pressed="true"]   { color: var(--accent); }
 
+/* Glance toggle locked — no OpenAI key present */
+#glance-toggle.locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Dim and block interaction when Glance can't inspect — planner requires Glance. */
 .input-area.mode-disabled .planner-toggle,
 .input-area.mode-blocked  .planner-toggle {

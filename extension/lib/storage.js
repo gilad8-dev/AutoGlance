@@ -131,7 +131,7 @@ export const DEFAULT_SETTINGS = {
   // Master switch for developer-facing UI. When false: planner and shadow
   // toggles are hidden from the input bar, the telemetry chip is suppressed,
   // and the planner automatically follows the Glance toggle.
-  developerTelemetry: true,
+  developerTelemetry: false,
 };
 
 /** Returns the API key for the currently selected provider. */

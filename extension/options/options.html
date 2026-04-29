@@ -18,10 +18,31 @@
 
     <main class="sections">
 
-      <!-- ── AI Provider ───────────────────────────────────── -->
+      <!-- ── OpenAI (Required) ──────────────────────────────────────────────── -->
       <section class="section">
-        <h2 class="section-title">AI Provider</h2>
-        <p class="section-desc">Select which AI service powers AutoGlance. The active provider's key is used for every message.</p>
+        <h2 class="section-title">OpenAI <span class="required-badge">Required</span></h2>
+        <p class="section-desc">AutoGlance's routing engine runs on OpenAI — it decides when and what context to capture from your browser. An API key here is required to use Glance &amp; Visual Capture.</p>
+
+        <div class="field">
+          <label class="label" for="openai-key">API Key</label>
+          <div class="input-group">
+            <input type="password" id="openai-key" class="input" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+            <button type="button" class="input-action-btn toggle-key" data-target="openai-key" title="Show/hide key">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <p class="field-hint">Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></p>
+        </div>
+        <div class="section-actions">
+          <button id="apply-openai-key" class="apply-btn">Apply API Key</button>
+          <span id="openai-key-status" class="inline-status hidden"></span>
+        </div>
+      </section>
+
+      <!-- ── More AI Providers ──────────────────────────────────────────────── -->
+      <section class="section">
+        <h2 class="section-title">More AI Providers</h2>
+        <p class="section-desc">Optionally use Anthropic or Google for your chat responses instead of OpenAI.</p>
 
         <!-- Segmented slider -->
         <div class="provider-slider" role="radiogroup" aria-label="Select provider">
@@ -32,12 +53,6 @@
             </svg>
             Anthropic
           </button>
-          <button class="slider-option" data-provider="openai" role="radio" aria-checked="false">
-            <svg class="option-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M22.28 9.82a5.99 5.99 0 0 0-.52-4.91 6.05 6.05 0 0 0-6.51-2.9A6.07 6.07 0 0 0 4.98 4.18a5.99 5.99 0 0 0-4 2.9 6.05 6.05 0 0 0 .74 7.1 5.98 5.98 0 0 0 .51 4.91 6.05 6.05 0 0 0 6.51 2.9A6.07 6.07 0 0 0 13.26 24a6.06 6.06 0 0 0 5.77-4.21 5.99 5.99 0 0 0 4-2.9 6.06 6.06 0 0 0-.75-7.07zm-9.02 12.61a4.48 4.48 0 0 1-2.88-1.04l.14-.08 4.78-2.76a.8.8 0 0 0 .39-.68V11.7l2.02 1.17a.07.07 0 0 1 .04.05v5.58a4.5 4.5 0 0 1-4.49 4.49zM3.6 18.3a4.47 4.47 0 0 1-.54-3.01l.14.08 4.78 2.76a.77.77 0 0 0 .78 0l5.84-3.37v2.33a.08.08 0 0 1-.03.06L9.74 19.95A4.5 4.5 0 0 1 3.6 18.3zm-1.26-10.4a4.49 4.49 0 0 1 2.37-1.97v5.68a.77.77 0 0 0 .39.68l5.81 3.35-2.02 1.17a.08.08 0 0 1-.07 0L3.99 14a4.5 4.5 0 0 1-1.65-6.1zm16.6 3.86-5.84-3.37 2.02-1.17a.08.08 0 0 1 .07 0l4.83 2.79a4.49 4.49 0 0 1-.68 8.1v-5.67a.79.79 0 0 0-.4-.68zm2.01-3.02-.14-.08-4.77-2.78a.78.78 0 0 0-.79 0L9.41 9.23V6.9a.07.07 0 0 1 .03-.06l4.83-2.79a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.14L6.3 11.71a.08.08 0 0 1-.04-.06V6.08a4.5 4.5 0 0 1 7.38-3.45l-.14.08-4.78 2.76a.8.8 0 0 0-.39.68zm1.1-2.36 2.6-1.5 2.6 1.5v3l-2.6 1.5-2.6-1.5z"/>
-            </svg>
-            OpenAI
-          </button>
           <button class="slider-option" data-provider="gemini" role="radio" aria-checked="false">
             <svg class="option-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 2C12 7.52 7.52 12 2 12c5.52 0 10 4.48 10 10 0-5.52 4.48-10 10-10-5.52 0-10-4.48-10-10z"/>
@@ -46,7 +61,6 @@
           </button>
         </div>
 
-        <!-- Per-provider panels - only one visible at a time -->
         <div id="panel-anthropic" class="provider-panel">
           <div class="field">
             <label class="label" for="anthropic-key">API Key</label>
@@ -58,26 +72,9 @@
             </div>
             <p class="field-hint">Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></p>
           </div>
-          <div class="field">
-            <label class="label" for="anthropic-model">Model</label>
-            <select id="anthropic-model" class="input select" data-provider-models="anthropic"></select>
-          </div>
-        </div>
-
-        <div id="panel-openai" class="provider-panel hidden">
-          <div class="field">
-            <label class="label" for="openai-key">API Key</label>
-            <div class="input-group">
-              <input type="password" id="openai-key" class="input" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-              <button type="button" class="input-action-btn toggle-key" data-target="openai-key" title="Show/hide key">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-            <p class="field-hint">Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></p>
-          </div>
-          <div class="field">
-            <label class="label" for="openai-model">Model</label>
-            <select id="openai-model" class="input select" data-provider-models="openai"></select>
+          <div class="section-actions">
+            <button id="apply-anthropic-key" class="apply-btn">Apply API Key</button>
+            <span id="anthropic-key-status" class="inline-status hidden"></span>
           </div>
         </div>
 
@@ -92,15 +89,15 @@
             </div>
             <p class="field-hint">Get your key at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a></p>
           </div>
-          <div class="field">
-            <label class="label" for="gemini-model">Model</label>
-            <select id="gemini-model" class="input select" data-provider-models="gemini"></select>
+          <div class="section-actions">
+            <button id="apply-gemini-key" class="apply-btn">Apply API Key</button>
+            <span id="gemini-key-status" class="inline-status hidden"></span>
           </div>
         </div>
       </section>
 
       <!-- ── Glance & Visual Capture ── -->
-      <section class="section">
+      <section class="section section--lockable" id="section-glance">
         <h2 class="section-title">Glance &amp; Visual Capture</h2>
         <p class="section-desc">Glance is the master gate for browser awareness. When ON, AutoGlance can see the page you're on. When OFF, it acts as a plain chat with no page inspection at all.</p>
 
@@ -117,29 +114,36 @@
           </label>
         </div>
 
-        <div class="field">
-          <label for="screenshot-quality" class="label">Image Quality</label>
-          <div class="slider-row">
-            <input type="range" id="screenshot-quality" class="slider" min="30" max="95" step="5" />
-            <span id="quality-value" class="slider-value">70%</span>
+        <div id="glance-settings-body" class="glance-settings-body">
+          <div class="field">
+            <label for="screenshot-quality" class="label">Image Quality</label>
+            <div class="slider-row">
+              <input type="range" id="screenshot-quality" class="slider" min="30" max="95" step="5" />
+              <span id="quality-value" class="slider-value">70%</span>
+            </div>
+            <p class="field-hint">Lower quality = smaller payload = faster responses. 70% is a good default.</p>
           </div>
-          <p class="field-hint">Lower quality = smaller payload = faster responses. 70% is a good default.</p>
+
+          <div class="field">
+            <label for="max-width" class="label">Max Image Width</label>
+            <select id="max-width" class="input select">
+              <option value="800">800 px (smaller payload)</option>
+              <option value="1280">1280 px (recommended)</option>
+              <option value="1920">1920 px (full resolution)</option>
+            </select>
+            <p class="field-hint">Screenshots wider than this will be resized before sending.</p>
+          </div>
         </div>
 
-        <div class="field">
-          <label for="max-width" class="label">Max Image Width</label>
-          <select id="max-width" class="input select">
-            <option value="800">800 px (smaller payload)</option>
-            <option value="1280">1280 px (recommended)</option>
-            <option value="1920">1920 px (full resolution)</option>
-          </select>
-          <p class="field-hint">Screenshots wider than this will be resized before sending.</p>
+        <!-- Lock overlay — shown when no OpenAI key is present -->
+        <div id="glance-lock-overlay" class="glance-lock-overlay hidden" aria-hidden="true">
+          <div class="glance-lock-icon">🔑</div>
+          <p class="glance-lock-message">An OpenAI API key is required to use Glance &amp; Visual Capture.<br>Enter one in the OpenAI section above.</p>
         </div>
-
       </section>
 
       <!-- ── Developer ── -->
-      <section class="section">
+      <section class="section section--lockable" id="section-developer">
         <h2 class="section-title">Developer</h2>
         <p class="section-desc">Tools for testing and calibrating the planner. Turn off for a clean production-like experience.</p>
 
@@ -156,6 +160,10 @@
           </label>
         </div>
 
+        <div id="developer-lock-overlay" class="glance-lock-overlay hidden" aria-hidden="true">
+          <div class="glance-lock-icon">🔑</div>
+          <p class="glance-lock-message">An OpenAI API key is required to access Developer tools.<br>Enter one in the OpenAI section above.</p>
+        </div>
       </section>
 
       <!-- ── Privacy / Blocklist ── -->
@@ -171,15 +179,12 @@
 
         <div class="domain-actions">
           <button id="reset-domains" class="secondary-btn">Reset to defaults</button>
+          <button id="apply-domains" class="apply-btn">Apply Changes</button>
+          <span id="domains-status" class="inline-status hidden"></span>
         </div>
       </section>
 
     </main>
-
-    <footer class="page-footer">
-      <div id="save-status" class="save-status hidden"></div>
-      <button id="save-btn" class="primary-btn">Save Settings</button>
-    </footer>
   </div>
 
   <script type="module" src="options.js"></script>

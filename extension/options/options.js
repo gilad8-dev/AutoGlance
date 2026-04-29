@@ -1,9 +1,9 @@
 /**
  * AutoGlance Options Page
- * Drives the segmented provider slider and saves all settings.
+ * Per-section save: auto-save for toggles/selects, Apply buttons for keys/domains.
  */
 
-import { getSettings, saveSettings, DEFAULT_SETTINGS, getModelsByProvider, getModelById, PROVIDERS } from '../lib/storage.js';
+import { getSettings, saveSettings, DEFAULT_SETTINGS, PROVIDERS } from '../lib/storage.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,63 +12,31 @@ let activeProvider = 'anthropic';
 
 async function init() {
   settings = await getSettings();
-  activeProvider = settings.provider ?? 'anthropic';
+  activeProvider = ['anthropic', 'gemini'].includes(settings.provider)
+    ? settings.provider
+    : 'anthropic';
 
-  populateModelDropdowns(settings);
   populateForm(settings);
   initSlider();
   bindEvents();
-}
-
-// ── Model dropdowns ───────────────────────────────────────────────────────
-
-/**
- * Populate every <select data-provider-models="..."> from the central MODELS
- * registry. The stored model id (if any) is guaranteed to appear as an option,
- * even if it is no longer in MODELS - we never silently downgrade a user's
- * saved choice to a different model.
- */
-function populateModelDropdowns(s) {
-  document.querySelectorAll('select[data-provider-models]').forEach((select) => {
-    const provider = select.dataset.providerModels;
-    const stored   = s[`${provider}Model`] ?? '';
-    const known    = getModelsByProvider(provider);
-
-    select.innerHTML = '';
-    for (const m of known) {
-      select.appendChild(buildOption(m.id, m.displayName));
-    }
-
-    // Preserve an unknown-but-previously-saved id so we don't mutate user state.
-    if (stored && !getModelById(stored)) {
-      select.appendChild(buildOption(stored, `${stored} (saved)`));
-    }
-  });
-}
-
-function buildOption(value, label) {
-  const opt = document.createElement('option');
-  opt.value = value;
-  opt.textContent = label;
-  return opt;
+  updateGlanceLock();
+  updateGlanceBody();
 }
 
 // ── Segmented slider ──────────────────────────────────────────────────────
 
 function initSlider() {
-  selectProvider(activeProvider, false); // false = no animation on first paint
+  selectProvider(activeProvider, false);
 }
 
 function selectProvider(provider, animate = true) {
   activeProvider = provider;
 
-  // Update option button states
   document.querySelectorAll('.slider-option').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.provider === provider);
     btn.setAttribute('aria-checked', btn.dataset.provider === provider ? 'true' : 'false');
   });
 
-  // Move the sliding pill
   const pill   = $('slider-pill');
   const active = document.querySelector(`.slider-option[data-provider="${provider}"]`);
   const track  = active.parentElement;
@@ -77,16 +45,14 @@ function selectProvider(provider, animate = true) {
 
   const trackRect  = track.getBoundingClientRect();
   const activeRect = active.getBoundingClientRect();
-  pill.style.left  = (activeRect.left - trackRect.left - 4) + 'px'; // -4 = slider padding
+  pill.style.left  = (activeRect.left - trackRect.left - 4) + 'px';
   pill.style.width = activeRect.width + 'px';
 
   if (!animate) {
-    // Re-enable animation after one frame
     requestAnimationFrame(() => { pill.style.transition = ''; });
   }
 
-  // Show/hide provider panels
-  Object.keys(PROVIDERS).forEach((p) => {
+  ['anthropic', 'gemini'].forEach((p) => {
     $(`panel-${p}`).classList.toggle('hidden', p !== provider);
   });
 }
@@ -94,19 +60,15 @@ function selectProvider(provider, animate = true) {
 // ── Form ──────────────────────────────────────────────────────────────────
 
 function populateForm(s) {
-  $('anthropic-key').value   = s.anthropicApiKey ?? '';
-  $('openai-key').value      = s.openaiApiKey    ?? '';
-  $('gemini-key').value      = s.geminiApiKey    ?? '';
+  $('anthropic-key').value = s.anthropicApiKey ?? '';
+  $('openai-key').value    = s.openaiApiKey    ?? '';
+  $('gemini-key').value    = s.geminiApiKey    ?? '';
 
-  $('anthropic-model').value = s.anthropicModel  ?? DEFAULT_SETTINGS.anthropicModel;
-  $('openai-model').value    = s.openaiModel     ?? DEFAULT_SETTINGS.openaiModel;
-  $('gemini-model').value    = s.geminiModel     ?? DEFAULT_SETTINGS.geminiModel;
-
-  $('glance-enabled').checked     = s.glanceEnabled     ?? true;
-  $('screenshot-quality').value   = s.screenshotQuality ?? 70;
-  $('quality-value').textContent  = `${s.screenshotQuality ?? 70}%`;
-  $('max-width').value            = String(s.maxImageWidth  ?? 1280);
-  $('developer-telemetry').checked  = s.developerTelemetry  ?? true;
+  $('glance-enabled').checked      = s.glanceEnabled     ?? true;
+  $('screenshot-quality').value    = s.screenshotQuality ?? 70;
+  $('quality-value').textContent   = `${s.screenshotQuality ?? 70}%`;
+  $('max-width').value             = String(s.maxImageWidth ?? 1280);
+  $('developer-telemetry').checked = s.developerTelemetry ?? false;
 
   $('blocked-domains').value = (s.blockedDomains ?? DEFAULT_SETTINGS.blockedDomains).join('\n');
 }
@@ -114,12 +76,11 @@ function populateForm(s) {
 // ── Events ────────────────────────────────────────────────────────────────
 
 function bindEvents() {
-  // Provider slider buttons
+  // Provider slider
   document.querySelectorAll('.slider-option').forEach((btn) => {
     btn.addEventListener('click', () => selectProvider(btn.dataset.provider));
   });
 
-  // Re-position pill if window resizes (layout reflow can shift positions)
   window.addEventListener('resize', () => selectProvider(activeProvider, false));
 
   // Quality slider preview
@@ -135,69 +96,196 @@ function bindEvents() {
     });
   });
 
+  // Auto-save: Glance & Visual Capture
+  $('glance-enabled').addEventListener('change', async () => {
+    updateGlanceBody();
+    await autoSave({ glanceEnabled: $('glance-enabled').checked });
+  });
+
+  $('screenshot-quality').addEventListener('change', async (e) => {
+    await autoSave({ screenshotQuality: parseInt(e.target.value, 10) });
+  });
+
+  $('max-width').addEventListener('change', async (e) => {
+    await autoSave({ maxImageWidth: parseInt(e.target.value, 10) });
+  });
+
+  // Auto-save: Developer
+  $('developer-telemetry').addEventListener('change', async () => {
+    await autoSave({ developerTelemetry: $('developer-telemetry').checked });
+  });
+
+  // Apply API Key buttons
+  $('apply-openai-key').addEventListener('click', () => applyApiKey('openai'));
+  $('apply-anthropic-key').addEventListener('click', () => applyApiKey('anthropic'));
+  $('apply-gemini-key').addEventListener('click', () => applyApiKey('gemini'));
+
+  // Auto-save key fields on blur (handles deletion and edits without requiring Apply)
+  $('openai-key').addEventListener('blur', () => autoSaveKey('openai'));
+  $('anthropic-key').addEventListener('blur', () => autoSaveKey('anthropic'));
+  $('gemini-key').addEventListener('blur', () => autoSaveKey('gemini'));
+
+
+  // Privacy / Domains
   $('reset-domains').addEventListener('click', () => {
     $('blocked-domains').value = DEFAULT_SETTINGS.blockedDomains.join('\n');
   });
 
-  $('save-btn').addEventListener('click', handleSave);
+  $('apply-domains').addEventListener('click', applyDomains);
 }
 
-// ── Save ──────────────────────────────────────────────────────────────────
+// ── Glance lock ───────────────────────────────────────────────────────────
 
-async function handleSave() {
-  const saveBtn = $('save-btn');
-  saveBtn.disabled = true;
+function updateGlanceBody() {
+  $('glance-settings-body').classList.toggle('disabled', !$('glance-enabled').checked);
+}
 
+function updateGlanceLock() {
+  const locked = !settings.openaiApiKey;
+
+  $('glance-lock-overlay').classList.toggle('hidden', !locked);
+  $('developer-lock-overlay').classList.toggle('hidden', !locked);
+
+  const toggle = $('glance-enabled');
+  toggle.checked  = locked ? false : (settings?.glanceEnabled ?? true);
+  toggle.disabled = locked;
+}
+
+// ── Auto-save (Glance & Developer toggles/selects) ────────────────────────
+
+async function autoSave(partial) {
+  await saveSettings(partial);
+  Object.assign(settings, partial);
+}
+
+async function autoSaveKey(provider) {
+  const inputId  = provider === 'openai' ? 'openai-key' : `${provider}-key`;
+  const key = $(inputId).value.trim();
+  const storageKey = `${provider}ApiKey`;
+
+  if (key === (settings[storageKey] ?? '')) return; // nothing changed
+
+  // For OpenAI, only auto-save a cleared field — a new/changed key must go
+  // through Apply so it gets validated before unlocking the locked sections.
+  if (provider === 'openai' && key !== '') return;
+
+  await saveSettings({ [storageKey]: key });
+  settings[storageKey] = key;
+
+  if (provider === 'openai') updateGlanceLock();
+}
+
+// ── API Key Validation ────────────────────────────────────────────────────
+
+async function validateKey(provider, key) {
   try {
-    const activeKey = {
-      anthropic: $('anthropic-key').value.trim(),
-      openai:    $('openai-key').value.trim(),
-      gemini:    $('gemini-key').value.trim(),
-    }[activeProvider];
-
-    if (!activeKey) {
-      const name = PROVIDERS[activeProvider]?.label ?? activeProvider;
-      showStatus(`Add an API key for ${name} before saving.`, 'error');
-      return;
+    if (provider === 'openai') {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      return res.ok;
     }
 
-    const blockedDomains = $('blocked-domains').value
-      .split('\n')
-      .map((d) => d.trim().toLowerCase())
-      .filter(Boolean)
-      .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+    if (provider === 'anthropic') {
+      const res = await fetch('https://api.anthropic.com/v1/models', {
+        method: 'GET',
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+      });
+      return res.ok;
+    }
 
-    const updated = {
-      provider:         activeProvider,
-      anthropicApiKey:  $('anthropic-key').value.trim(),
-      openaiApiKey:     $('openai-key').value.trim(),
-      geminiApiKey:     $('gemini-key').value.trim(),
-      anthropicModel:   $('anthropic-model').value,
-      openaiModel:      $('openai-model').value,
-      geminiModel:      $('gemini-model').value,
-      glanceEnabled:     $('glance-enabled').checked,
-      screenshotQuality: parseInt($('screenshot-quality').value, 10),
-      maxImageWidth:     parseInt($('max-width').value, 10),
-      developerTelemetry: $('developer-telemetry').checked,
-      blockedDomains,
-    };
-
-    await saveSettings(updated);
-    Object.assign(settings, updated);
-    showStatus('✓ Settings saved', 'success');
-  } catch (err) {
-    showStatus(`Error: ${err.message}`, 'error');
-  } finally {
-    saveBtn.disabled = false;
+    if (provider === 'gemini') {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`
+      );
+      return res.ok;
+    }
+  } catch {
+    return false;
   }
+  return false;
 }
 
-function showStatus(message, type) {
-  const el = $('save-status');
+async function applyApiKey(provider) {
+  const inputId  = provider === 'openai' ? 'openai-key' : `${provider}-key`;
+  const statusId = provider === 'openai' ? 'openai-key-status' : `${provider}-key-status`;
+  const btnId    = provider === 'openai' ? 'apply-openai-key' : `apply-${provider}-key`;
+
+  const key    = $(inputId).value.trim();
+  const status = $(statusId);
+  const btn    = $(btnId);
+
+  if (!key) {
+    showInlineStatus(status, 'Enter a key first.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  showInlineStatus(status, 'Validating…', 'loading');
+
+  const valid = await validateKey(provider, key);
+
+  if (valid) {
+    const storageKey = `${provider}ApiKey`;
+    const partial = { [storageKey]: key };
+
+    // For anthropic/gemini, also set provider so sidepanel knows which to use
+    if (provider !== 'openai') {
+      partial.provider = provider;
+      activeProvider = provider;
+    }
+
+    await saveSettings(partial);
+    Object.assign(settings, partial);
+
+    if (provider === 'openai') {
+      updateGlanceLock();
+    }
+
+    showInlineStatus(status, '✓ Key saved & connected', 'success');
+  } else {
+    const label = PROVIDERS[provider]?.label ?? provider;
+    showInlineStatus(status, `Invalid key — check your ${label} key and try again.`, 'error');
+  }
+
+  btn.disabled = false;
+}
+
+// ── Domain blocklist ──────────────────────────────────────────────────────
+
+async function applyDomains() {
+  const btn    = $('apply-domains');
+  const status = $('domains-status');
+
+  btn.disabled = true;
+
+  const blockedDomains = $('blocked-domains').value
+    .split('\n')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+
+  await saveSettings({ blockedDomains });
+  Object.assign(settings, { blockedDomains });
+
+  $('blocked-domains').value = blockedDomains.join('\n');
+  showInlineStatus(status, '✓ Blocklist saved', 'success');
+
+  btn.disabled = false;
+}
+
+// ── Inline status helper ──────────────────────────────────────────────────
+
+function showInlineStatus(el, message, type) {
   el.textContent = message;
-  el.className = `save-status ${type}`;
+  el.className = `inline-status ${type}`;
   clearTimeout(el._timeout);
-  el._timeout = setTimeout(() => { el.className = 'save-status hidden'; }, 3500);
+  if (type !== 'loading') {
+    el._timeout = setTimeout(() => { el.className = 'inline-status hidden'; }, 3500);
+  }
 }
 
 init().catch(console.error);
