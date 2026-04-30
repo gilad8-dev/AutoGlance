@@ -2,7 +2,7 @@
 
 > AI browser copilot with visual page understanding
 
-AutoGlance is a Chrome Extension (Manifest V3) that opens a side-panel chat inside Chrome. Each message can automatically include browser context - a screenshot, a sanitized DOM extract, or nothing at all - giving the model exactly what it needs to answer about the current page.
+AutoGlance is a vision-based chat Chrome Extension (Manifest V3), where Each message can automatically include browser context. A smart routing architecture switches between a screenshot, a sanitized DOM extract, or nothing at all - giving the model exactly what it needs to answer about the current page, while reducing tokens per message, and conversation costs by 30%. 
 
 ---
 
@@ -92,7 +92,7 @@ User prompt
     │
     ├─ pre-extract DOM            ← exact post-sanitization token count, ~5–30 ms
     ├─ buildPlannerCostMenu()     ← none=0 tok  vs  context_needed=cheapest tool tok
-    ├─ planContext() [LLM1]       ← binary decision: none or context_needed
+    ├─ planContext() [LLM1]       ← binary decision: none or context_needed. DOM data is well-formatted within the system prompt in a way that reduces the risk of DOM-based prompt injection.
     │       │
     │       ├─ "none" ──────────→ streamMessage() directly (no context, no protocol)
     │       │                              └─ answer
@@ -144,7 +144,7 @@ User prompt
 
 #### Why two models?
 
-LLM1 (the planner) is a tiny, cheap model that receives only page metadata - no raw text, no screenshots. Its sole output is a binary routing decision: `none` or `context_needed`. The specific context tool (DOM vs screenshot) is chosen deterministically by the orchestrator (cheapest option wins), never by LLM1. This design removes quality-vs-cost bias from the planner's reasoning entirely.
+LLM1 (the planner) is a tiny, cheap model (current version runs GPT 5-nano) that receives only page metadata - no raw text, no screenshots. Its sole output is a binary routing decision: `none` or `context_needed`. The specific context tool (DOM vs screenshot) is chosen deterministically by the orchestrator (cheapest option wins), never by LLM1. This design removes quality-vs-cost bias from the planner's reasoning entirely. Personally, i found vision to be as accurate as a DOM extract on all models, and fallback was rare during testing. 
 
 ---
 
