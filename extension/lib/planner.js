@@ -33,11 +33,14 @@
  * different request shape (no streaming, no chat history).
  */
 
-import { getPricing } from './cost-estimator.js';
+import { costFromUsage } from './cost-estimator.js';
 
 const PLANNER_API_URL    = 'https://api.openai.com/v1/chat/completions';
 const PLANNER_TIMEOUT_MS = 15_000;
-const PLANNER_MAX_TOKENS = 2500;
+// GPT-5-nano is a reasoning model: chain-of-thought eats into this budget
+// before output tokens. 16000 gives the model room to reason and still emit
+// the required JSON object.
+const PLANNER_MAX_TOKENS = 16000;
 
 /** Vocabulary the planner is allowed to output. The orchestrator maps
  *  'context_needed' to the cheapest available actual tool at runtime. */
@@ -200,7 +203,7 @@ export async function planContext(args) {
       // alongside what we actually used.
       latencyMs:         raw.latencyMs,
       actualUsage:       raw.usage,
-      actualCostUSD:     usageCost(raw.usage, plannerModelId),
+      actualCostUSD:     costFromUsage(raw.usage, plannerModelId),
       rawResponse:       raw.text,
       validatedDecision: null,
     };
@@ -225,7 +228,7 @@ export async function planContext(args) {
     validatedDecision: decision,
     latencyMs:         raw.latencyMs,
     actualUsage:       raw.usage,
-    actualCostUSD:     usageCost(raw.usage, plannerModelId),
+    actualCostUSD:     costFromUsage(raw.usage, plannerModelId),
   };
 }
 
@@ -464,11 +467,3 @@ function defaultDecision(defaultPackage, source, reason) {
   };
 }
 
-function usageCost(usage, modelId) {
-  if (!usage) return null;
-  const pricing = getPricing(modelId);
-  if (!pricing) return null;
-  const inCost  = ((usage.inputTokens  ?? 0) / 1_000_000) * pricing.inUSDPer1M;
-  const outCost = ((usage.outputTokens ?? 0) / 1_000_000) * pricing.outUSDPer1M;
-  return inCost + outCost;
-}

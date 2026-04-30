@@ -137,6 +137,17 @@ export function getPricing(modelId) {
   return PRICING[modelId] ?? null;
 }
 
+/** Convert a usage report ({inputTokens, outputTokens}) + model id into a cost number.
+ *  Returns null when the model is unpriced. */
+export function costFromUsage(usage, modelId) {
+  if (!usage) return null;
+  const pricing = getPricing(modelId);
+  if (!pricing) return null;
+  const inCost  = ((usage.inputTokens  ?? 0) / 1_000_000) * pricing.inUSDPer1M;
+  const outCost = ((usage.outputTokens ?? 0) / 1_000_000) * pricing.outUSDPer1M;
+  return inCost + outCost;
+}
+
 /** Cheap rough text-token estimate. Anchored to the chars-per-token rule. */
 export function estimateTextTokens(charCount) {
   if (!charCount || charCount < 0) return 0;

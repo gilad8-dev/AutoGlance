@@ -151,15 +151,7 @@ function bindEvents() {
     chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
   });
 
-  document.querySelectorAll('.suggestion-chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      inputEl.value = chip.dataset.text;
-      autoResizeInput();
-      sendBtn.disabled = false;
-      inputEl.focus();
-      handleSend();
-    });
-  });
+  bindSuggestionChips();
 
   window.addEventListener('focus', refreshTabInfo);
 
@@ -365,7 +357,7 @@ async function handleSend() {
         if (firstByteAt === null) firstByteAt = performance.now();
         ensureBubble();
         fullText += chunk;
-        bubbleEl.innerHTML = renderMarkdown(sealOpenFences(fullText));
+        bubbleEl.innerHTML = DOMPurify.sanitize(renderMarkdown(sealOpenFences(fullText)));
         bubbleEl.classList.add('loading-cursor');
         scrollToBottom();
       };
@@ -580,7 +572,7 @@ async function handleSend() {
           if (llm2FirstByteAt === null) llm2FirstByteAt = performance.now();
           ensureBubble();
           fullText += chunk;
-          bubbleEl.innerHTML = renderMarkdown(sealOpenFences(fullText));
+          bubbleEl.innerHTML = DOMPurify.sanitize(renderMarkdown(sealOpenFences(fullText)));
           bubbleEl.classList.add('loading-cursor');
           scrollToBottom();
         },
@@ -827,11 +819,7 @@ async function runPlannerFlow({
     });
     const round1EndedAt = performance.now();
 
-    const pricing  = getPricing(llm2Model);
-    const noneCost = noneUsage && pricing
-      ? ((noneUsage.inputTokens  ?? 0) / 1_000_000) * pricing.inUSDPer1M
-      + ((noneUsage.outputTokens ?? 0) / 1_000_000) * pricing.outUSDPer1M
-      : null;
+    const noneCost = costFromUsage(noneUsage, llm2Model);
 
     const finalAction = {
       action:                  'provide_answer',
@@ -1234,7 +1222,7 @@ function appendAssistantBubble(text) {
   const bubble = document.createElement('div');
   bubble.className = 'bubble bubble--assistant';
   bubble.dir = 'auto';
-  if (text) bubble.innerHTML = renderMarkdown(text);
+  if (text) bubble.innerHTML = DOMPurify.sanitize(renderMarkdown(text));
   row.appendChild(bubble);
   messagesEl.appendChild(row);
   scrollToBottom();
@@ -1264,6 +1252,7 @@ function appendStatusIndicator() {
         <div class="typing-dot"></div>
       </div>
     </div>`;
+  row.style.animationDelay = '1s';
   messagesEl.appendChild(row);
   scrollToBottom();
   return {
@@ -1899,7 +1888,7 @@ function clearConversation() {
   messagesEl.innerHTML = `
     <div class="welcome">
       <h1 class="welcome-greeting">Hello. <em>What are you looking at?</em></h1>
-      <p>I'm AutoGlance, a browser companion with a view. Ask me about anything on this page and I'll see what you see.</p>
+      <p>I'm AutoGlance.<br>Ask me about anything on this page and I'll see what I can do.</p>
       <div class="welcome-suggestions">
         <button class="suggestion-chip" data-text="What am I looking at?">What am I looking at?</button>
         <button class="suggestion-chip" data-text="Summarize this page for me.">Summarize this page</button>
@@ -1907,11 +1896,16 @@ function clearConversation() {
         <button class="suggestion-chip" data-text="Explain the chart on screen.">Explain the chart on screen</button>
       </div>
     </div>`;
+  bindSuggestionChips();
+}
+
+function bindSuggestionChips() {
   document.querySelectorAll('.suggestion-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       inputEl.value = chip.dataset.text;
       autoResizeInput();
       sendBtn.disabled = false;
+      inputEl.focus();
       handleSend();
     });
   });
@@ -1973,7 +1967,8 @@ let codeStoreNextId = 0;
       link({ href, title, tokens }) {
         const text = this.parser.parseInline(tokens);
         const safeHref = /^https?:\/\//i.test(href ?? '') ? href : '#';
-        const titleAttr = title ? ` title="${title}"` : '';
+        const safeTitle = title ? title.replace(/&/g, '&amp;').replace(/"/g, '&quot;') : null;
+        const titleAttr = safeTitle ? ` title="${safeTitle}"` : '';
         return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
       },
 

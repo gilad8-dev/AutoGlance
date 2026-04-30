@@ -51,6 +51,7 @@ export function extractViewportDomInPage() {
     'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'PRE', 'FIGURE', 'FIGCAPTION', 'DETAILS', 'SUMMARY',
   ]);
   const BLOCK_SELECTOR = Array.from(BLOCK_TAGS).join(',');
+  const SKIP_SELECTOR  = Array.from(SKIP_TAGS).join(',');
 
   const vw = window.innerWidth || document.documentElement.clientWidth || 0;
   const vh = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -90,21 +91,14 @@ export function extractViewportDomInPage() {
   function shouldSkipParent(parent) {
     if (!parent) return true;
     if (SKIP_TAGS.has(parent.tagName)) return true;
-    if (parent.closest && parent.closest(Array.from(SKIP_TAGS).join(','))) return true;
+    if (parent.closest && parent.closest(SKIP_SELECTOR)) return true;
     if (isInsideSensitiveInput(parent)) return true;
     if (!isVisible(parent)) return true;
     return false;
   }
 
-  function headingPrefix(tag) {
-    if (tag === 'H1') return '# ';
-    if (tag === 'H2') return '## ';
-    if (tag === 'H3') return '### ';
-    if (tag === 'H4') return '#### ';
-    if (tag === 'H5') return '##### ';
-    if (tag === 'H6') return '###### ';
-    return '';
-  }
+  const HEADING_PREFIX = { H1: '# ', H2: '## ', H3: '### ', H4: '#### ', H5: '##### ', H6: '###### ' };
+  function headingPrefix(tag) { return HEADING_PREFIX[tag] ?? ''; }
 
   let out = '';
   let truncated = false;

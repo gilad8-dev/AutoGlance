@@ -25,3 +25,7 @@ npm-debug.log*
 *.crx
 *.pem
 *.zip
+
+# Store listing assets (live in separate repo)
+privacy-policy.html
+privacy-policy-README.md

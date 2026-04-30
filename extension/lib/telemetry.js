@@ -18,7 +18,7 @@
  * turns until Step 6 lands).
  */
 
-import { getPricing } from './cost-estimator.js';
+import { getPricing, costFromUsage } from './cost-estimator.js';
 
 const RING_BUFFER_KEY = 'autoglanceTelemetry';
 const RING_BUFFER_MAX = 50;
@@ -154,15 +154,4 @@ function pushToRingBuffer(record) {
   });
 }
 
-/**
- * Convenience: convert a usage report ({inputTokens, outputTokens}) plus a
- * model id into a cost number. Returns null when the model is unpriced.
- */
-export function costFromUsage(usage, modelId) {
-  if (!usage) return null;
-  const pricing = getPricing(modelId);
-  if (!pricing) return null;
-  const inCost  = ((usage.inputTokens  ?? 0) / 1_000_000) * pricing.inUSDPer1M;
-  const outCost = ((usage.outputTokens ?? 0) / 1_000_000) * pricing.outUSDPer1M;
-  return inCost + outCost;
-}
+export { costFromUsage };
