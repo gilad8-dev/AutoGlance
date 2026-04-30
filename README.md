@@ -2,20 +2,20 @@
 
 > AI browser copilot with visual page understanding
 
-AutoGlance is a Chrome Extension (Manifest V3) that opens a side-panel chat inside Chrome. Each message can automatically include browser context — a screenshot, a sanitized DOM extract, or nothing at all — giving the model exactly what it needs to answer about the current page.
+AutoGlance is a Chrome Extension (Manifest V3) that opens a side-panel chat inside Chrome. Each message can automatically include browser context - a screenshot, a sanitized DOM extract, or nothing at all - giving the model exactly what it needs to answer about the current page.
 
 ---
 
 ## Features
 
-- **Side-panel chat** — persistent, non-intrusive, always accessible
-- **Smart context planning** — a cheap LLM decides what to gather before the answering model runs
-- **Multi-provider support** — Anthropic Claude, OpenAI GPT, Google Gemini
-- **Streaming responses** — text streams in as the model generates (Anthropic); full-response delivery for OpenAI/Gemini
-- **Privacy-first** — per-domain blocklist, one-click Glance toggle, visual status bar
-- **Markdown rendering** — code blocks, math (KaTeX), syntax highlighting, lists, bold/italic
-- **Conversation history** — multi-turn context with DOM text enrichment across turns
-- **Per-turn telemetry** — estimated vs actual token counts, costs, latency, and planner decisions
+- **Side-panel chat** - persistent, non-intrusive, always accessible
+- **Smart context planning** - a cheap LLM decides what to gather before the answering model runs
+- **Multi-provider support** - Anthropic Claude, OpenAI GPT, Google Gemini
+- **Streaming responses** - text streams in as the model generates (Anthropic); full-response delivery for OpenAI/Gemini
+- **Privacy-first** - per-domain blocklist, one-click Glance toggle, visual status bar
+- **Markdown rendering** - code blocks, math (KaTeX), syntax highlighting, lists, bold/italic
+- **Conversation history** - multi-turn context with DOM text enrichment across turns
+- **Per-turn telemetry** - estimated vs actual token counts, costs, latency, and planner decisions
 
 ---
 
@@ -59,7 +59,7 @@ Type any question in the chat input and press **Enter** (Shift+Enter for a newli
 
 | Toggle | Icon | Purpose |
 |--------|------|---------|
-| **Glance** | Eye | Master gate. When OFF, no page inspection runs — pure text chat |
+| **Glance** | Eye | Master gate. When OFF, no page inspection runs - pure text chat |
 | **Planner** | Star | Enables the LLM1→gather→LLM2 flow. When OFF, falls back to the legacy screenshot-always path |
 | **Shadow** | Split-panel | Dev only. Runs a real legacy screenshot call in parallel so telemetry shows actual-vs-actual cost comparison |
 
@@ -78,7 +78,7 @@ User prompt
     └─ streamMessage(screenshot + prompt + history) → LLM2 → answer
 ```
 
-Always attaches a viewport screenshot. Simple and reliable, but expensive — every turn pays full image token cost regardless of whether the page has changed.
+Always attaches a viewport screenshot. Simple and reliable, but expensive - every turn pays full image token cost regardless of whether the page has changed.
 
 ### Planner flow
 
@@ -118,7 +118,7 @@ User prompt
 #### Decision flow
 
 ```
-1. LLM1 — is fresh context needed?
+1. LLM1 - is fresh context needed?
    No  → 7  (stream directly, no context attached)
    Yes → 2
 
@@ -140,11 +140,11 @@ User prompt
    request_more_context → 3  (screenshot fallback; max once, then degrade)
 ```
 
-> **Note on step 7**: when arriving from the `none` branch (step 1 → 7 directly), LLM2 is streamed without the structured-output protocol — no fallback is possible. The fallback loop (→ 3) only applies when context was gathered via steps 3–6.
+> **Note on step 7**: when arriving from the `none` branch (step 1 → 7 directly), LLM2 is streamed without the structured-output protocol - no fallback is possible. The fallback loop (→ 3) only applies when context was gathered via steps 3–6.
 
 #### Why two models?
 
-LLM1 (the planner) is a tiny, cheap model that receives only page metadata — no raw text, no screenshots. Its sole output is a binary routing decision: `none` or `context_needed`. The specific context tool (DOM vs screenshot) is chosen deterministically by the orchestrator (cheapest option wins), never by LLM1. This design removes quality-vs-cost bias from the planner's reasoning entirely.
+LLM1 (the planner) is a tiny, cheap model that receives only page metadata - no raw text, no screenshots. Its sole output is a binary routing decision: `none` or `context_needed`. The specific context tool (DOM vs screenshot) is chosen deterministically by the orchestrator (cheapest option wins), never by LLM1. This design removes quality-vs-cost bias from the planner's reasoning entirely.
 
 ---
 
@@ -158,7 +158,7 @@ AutoGlance/
 │   │   └── service-worker.js      Screenshot capture, tab info relay, message router
 │   ├── sidepanel/
 │   │   ├── index.html             Side-panel UI shell
-│   │   ├── sidepanel.js           Turn orchestrator — runs the full planner flow
+│   │   ├── sidepanel.js           Turn orchestrator - runs the full planner flow
 │   │   └── sidepanel.css          Styles
 │   ├── options/
 │   │   ├── options.html
@@ -171,8 +171,8 @@ AutoGlance/
 │       ├── change-signals.js      Per-tab manifest history, change-signal computation
 │       ├── context-tools.js       DOM extraction, screenshot capture, gatherTools()
 │       ├── context-builder.js     Legacy prompt/context assembly + image compression
-│       ├── planner.js             LLM1 — planContext(), validateDecision(), cost menu
-│       ├── llm2-protocol.js       LLM2 — askLLM2(), provider strategies, message builders
+│       ├── planner.js             LLM1 - planContext(), validateDecision(), cost menu
+│       ├── llm2-protocol.js       LLM2 - askLLM2(), provider strategies, message builders
 │       ├── ai-client.js           Legacy Anthropic streaming client
 │       ├── cost-estimator.js      Token + cost estimation for all providers/tools
 │       └── telemetry.js           Per-turn record, in-memory map, ring buffer (last 50)
@@ -180,7 +180,7 @@ AutoGlance/
     └── generate-icons.js
 ```
 
-### lib/storage.js — model registry
+### lib/storage.js - model registry
 
 Single source of truth for every supported model.
 
@@ -192,9 +192,9 @@ Single source of truth for every supported model.
 | `family` | Grouping label (e.g. `claude-4`, `gemini-3.1`) |
 | `capabilities` | Informational tags (`vision`, `streaming`) |
 
-### lib/page-manifest.js — page manifest
+### lib/page-manifest.js - page manifest
 
-Runs `extractManifestInPage()` inside the page via `chrome.scripting.executeScript`. Returns structural facts only — no raw text, no attribute values.
+Runs `extractManifestInPage()` inside the page via `chrome.scripting.executeScript`. Returns structural facts only - no raw text, no attribute values.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -209,12 +209,12 @@ Runs `extractManifestInPage()` inside the page via `chrome.scripting.executeScri
 | `hasFocusedElement`, `focusedElementType` | bool/str | Active focus state |
 | `hasCrossOriginIframes` | bool | DOM tools may miss iframe content |
 | `domReliable` | bool | `false` when canvas-dominant (>50% viewport) or `visibleTextLength < 200` |
-| `visibleDomHash` | string | djb2 of first 4 KB of visible text — change detection |
-| `mediaHash` | string | djb2 of visible `<img>` src list — change detection |
+| `visibleDomHash` | string | djb2 of first 4 KB of visible text - change detection |
+| `mediaHash` | string | djb2 of visible `<img>` src list - change detection |
 
 `domReliable === false` triggers a hard revert to the legacy flow before the planner runs. Affected pages include PDF viewers, whiteboards, map tiles, and canvas-heavy apps.
 
-### lib/change-signals.js — change signals
+### lib/change-signals.js - change signals
 
 Compares the current manifest against the last-seen manifest for that tab. The result is a boolean record the planner uses to decide whether `"none"` is safe.
 
@@ -229,7 +229,7 @@ Compares the current manifest against the last-seen manifest for that tab. The r
 | `media_hash_changed` | Visible image src list changed |
 | `ms_since_last_turn` | Time since previous turn (ms) |
 
-### lib/planner.js — LLM1
+### lib/planner.js - LLM1
 
 **Model**: `gpt-5-nano-2025-08-07` via OpenAI API. Non-streaming, one-shot, 15 s timeout.
 
@@ -254,17 +254,17 @@ context_options             (two-entry cost menu)
 }
 ```
 
-**Decision rules** (v5 — binary):
+**Decision rules** (v5 - binary):
 
-1. `"none"` — zero extra tokens. Use only when **all** of the following hold:
+1. `"none"` - zero extra tokens. Use only when **all** of the following hold:
    - `conversation_has_prior_turns` is true
    - All change signals are false
    - The prompt does not signal new or different content
    - `dom_reliable` is true
-2. `"context_needed"` — for everything else. The orchestrator picks the cheapest available tool (DOM or screenshot) automatically.
+2. `"context_needed"` - for everything else. The orchestrator picks the cheapest available tool (DOM or screenshot) automatically.
 3. `fallback_risk` reflects the probability that LLM2 will need additional context after the chosen package.
 
-LLM1 never chooses between DOM and screenshot — that decision is deterministic (cheapest wins) and handled entirely by the orchestrator.
+LLM1 never chooses between DOM and screenshot - that decision is deterministic (cheapest wins) and handled entirely by the orchestrator.
 
 **Validation** (`validateDecision`): JSON parse → schema shape → type membership → `"none"` rule enforcement. On any failure, falls back to `['context_needed']` so the orchestrator gathers the cheapest available tool.
 
@@ -273,15 +273,15 @@ LLM1 never chooses between DOM and screenshot — that decision is deterministic
 - `domReliable === false` (change signals are blind on canvas/PDF pages)
 - Any change signal is `true`
 
-### lib/llm2-protocol.js — LLM2
+### lib/llm2-protocol.js - LLM2
 
 The answering model. Two protocol strategies depending on provider:
 
-**Anthropic — native tool calling** (streaming):
+**Anthropic - native tool calling** (streaming):
 
 LLM2 is offered a single tool: `request_more_context`. If context is sufficient, it streams a normal text answer. If not, it calls the tool specifying the additional types it needs.
 
-**OpenAI / Gemini — JSON envelope** (non-streaming):
+**OpenAI / Gemini - JSON envelope** (non-streaming):
 
 LLM2 is instructed to prepend a one-line JSON envelope before its answer:
 
@@ -305,7 +305,7 @@ If the envelope is missing or malformed, the full response is treated as `provid
 **`"none"` annotation**: when the planner picks `"none"` on a turn with prior history, the user prompt is appended with:
 
 ```
-[AutoGlance: page unchanged since last turn — answer from conversation history, no new context needed]
+[AutoGlance: page unchanged since last turn - answer from conversation history, no new context needed]
 ```
 
 This annotation is sent to the model but not stored in history. It prevents LLM2 from wondering why no context was attached and ensures it answers confidently from conversation memory.
@@ -333,7 +333,7 @@ Applied to system prompt, history, user prompt, and DOM text blocks.
 
 DOM text is estimated to expand ~1.4× in tags vs raw text: `effective_chars = visible_text_length × 1.4`, then capped.
 
-### Image tokens — Anthropic
+### Image tokens - Anthropic
 
 ```
 tokens = ceil(width × height / 750)
@@ -349,9 +349,9 @@ if width > maxImageWidth:
 tokens = ceil(width × height / 750)
 ```
 
-### Image tokens — OpenAI (patch-based: gpt-5.4-mini, gpt-5.4-nano)
+### Image tokens - OpenAI (patch-based: gpt-5.4-mini, gpt-5.4-nano)
 
-Source: OpenAI developer docs — patch-based tokenization. Patch budget: **1,536**.
+Source: OpenAI developer docs - patch-based tokenization. Patch budget: **1,536**.
 
 ```
 A.  original_patches = ceil(width/32) × ceil(height/32)
@@ -376,9 +376,9 @@ C.  tokens = round(resized_patches × multiplier)
 | `gpt-5.4-mini` | 1.62 |
 | `gpt-5.4-nano` | 2.46 |
 
-### Image tokens — OpenAI (tile-based: gpt-5.5, gpt-5.4)
+### Image tokens - OpenAI (tile-based: gpt-5.5, gpt-5.4)
 
-Source: OpenAI developer docs — tile-based tokenization (high detail).
+Source: OpenAI developer docs - tile-based tokenization (high detail).
 
 ```
 1.  Scale to fit within 2048×2048 (maintain aspect ratio).
@@ -392,7 +392,7 @@ Source: OpenAI developer docs — tile-based tokenization (high detail).
 | `gpt-5.5` | 70 | 140 | Proxy from gpt-5 / gpt-5-chat-latest |
 | `gpt-5.4` | 85 | 170 | Proxy from gpt-4o / gpt-4.1 / gpt-4.5 |
 
-### Image tokens — Gemini
+### Image tokens - Gemini
 
 Source: Gemini token calculation docs.
 
@@ -507,7 +507,7 @@ Displayed below each assistant message when `showTelemetry: true`. Click to expa
 
 ### Shadow old-flow
 
-When the shadow toggle is ON (`_internalShadowOldFlow: true`), a real legacy screenshot call runs silently after each planner turn completes. Its actual token counts and cost replace the estimated old-flow baseline in the delta calculation. **Doubles API cost per turn — dev/testing only.**
+When the shadow toggle is ON (`_internalShadowOldFlow: true`), a real legacy screenshot call runs silently after each planner turn completes. Its actual token counts and cost replace the estimated old-flow baseline in the delta calculation. **Doubles API cost per turn - dev/testing only.**
 
 ---
 
@@ -515,14 +515,14 @@ When the shadow toggle is ON (`_internalShadowOldFlow: true`), a real legacy scr
 
 ### Glance toggle
 
-The eye icon in the input area is the master Glance gate. When OFF: no manifest, no screenshot, no DOM, no planner — pure text chat.
+The eye icon in the input area is the master Glance gate. When OFF: no manifest, no screenshot, no DOM, no planner - pure text chat.
 
 ### Privacy status bar
 
 | Color | Meaning |
 |-------|---------|
-| Green | Glance on — page context will be gathered |
-| Yellow | Domain is blocked — text only |
+| Green | Glance on - page context will be gathered |
+| Yellow | Domain is blocked - text only |
 | Gray | Glance manually off |
 
 ### Domain blocklist
@@ -537,7 +537,7 @@ Each turn may include:
 - Page title, URL, and selected text (from manifest / tab info)
 - Sanitized DOM text extract (if `viewport_dom` was chosen)
 - A compressed JPEG screenshot of the visible viewport (if `viewport_screenshot` was chosen)
-- Conversation history (text only — screenshots are never re-sent in history)
+- Conversation history (text only - screenshots are never re-sent in history)
 
 **Nothing is stored on any server.** Requests go directly from your browser to the provider API. API keys are stored in `chrome.storage.sync`, local to your Chrome profile.
 
@@ -548,7 +548,7 @@ Each turn may include:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `provider` | `anthropic` | Active provider |
-| `anthropicApiKey` / `openaiApiKey` / `geminiApiKey` | — | Per-provider API keys |
+| `anthropicApiKey` / `openaiApiKey` / `geminiApiKey` | - | Per-provider API keys |
 | `anthropicModel` | `claude-opus-4-7` | Per-provider model selection |
 | `glanceEnabled` | `true` | Master Glance gate |
 | `screenshotQuality` | `70` | JPEG quality 1–100 |
@@ -559,7 +559,7 @@ Each turn may include:
 | `plannerProvider` | `openai` | LLM1 provider |
 | `plannerModelId` | `gpt-5-nano-2025-08-07` | LLM1 model |
 | `plannerMaxFallbacks` | `1` | Max LLM2 re-gather rounds per turn |
-| `defaultPlannerFailurePackage` | `['context_needed']` | Fallback when planner fails — orchestrator picks cheapest tool |
+| `defaultPlannerFailurePackage` | `['context_needed']` | Fallback when planner fails - orchestrator picks cheapest tool |
 | `showTelemetry` | `true` | Show per-turn cost/token chip |
 
 Internal settings (`_internal*`) are not exposed in the Settings UI. Set them via DevTools: `chrome.storage.sync.set({ _internalUsePlannerFlow: true })`.
@@ -577,6 +577,6 @@ Internal settings (`_internal*`) are not exposed in the Settings UI. Set them vi
 | Planner receives only metadata | No raw text = no prompt-injection surface; compact input fits the nano model's context window |
 | History text-only (strip images) | Avoids 10–20× token inflation from repeating screenshots across turns |
 | DOM enriched back into history | LLM2 sees prior DOM content in subsequent turns without re-gathering |
-| `domReliable` hard gate | PDF/canvas pages are blind to change signals — legacy flow is safer and costs the same |
+| `domReliable` hard gate | PDF/canvas pages are blind to change signals - legacy flow is safer and costs the same |
 | Shadow flow doubles cost | True cost comparison requires a real call; gated behind a dev-only toggle |
 | `chrome.storage.sync` for keys | Roams with Chrome profile; acceptable for personal use |
