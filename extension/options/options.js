@@ -112,7 +112,10 @@ function bindEvents() {
 
   // Auto-save: Developer
   $('developer-telemetry').addEventListener('change', async () => {
-    await autoSave({ developerTelemetry: $('developer-telemetry').checked });
+    const on = $('developer-telemetry').checked;
+    const partial = { developerTelemetry: on };
+    if (on) partial._internalUsePlannerFlow = true;
+    await autoSave(partial);
   });
 
   // Apply API Key buttons
@@ -243,6 +246,12 @@ async function applyApiKey(provider) {
 
     if (provider === 'openai') {
       updateGlanceLock();
+      updateGlanceBody();
+      // Switch to OpenAI as the active chat provider when no other provider key exists
+      if (!settings[`${settings.provider}ApiKey`]) {
+        await saveSettings({ provider: 'openai' });
+        Object.assign(settings, { provider: 'openai' });
+      }
     }
 
     showInlineStatus(status, '✓ Key saved & connected', 'success');

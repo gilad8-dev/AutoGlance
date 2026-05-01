@@ -93,8 +93,12 @@ async function init() {
         glanceSessionActive = true;   // settings turned ON → activate session
       }
     }
-    if ('openaiApiKey' in changed && !changed.openaiApiKey) {
-      glanceSessionActive = false;    // key removed → kill session
+    if ('openaiApiKey' in changed) {
+      if (!changed.openaiApiKey) {
+        glanceSessionActive = false;  // key removed → kill session
+      } else if (settings.glanceEnabled) {
+        glanceSessionActive = true;   // key added → activate session
+      }
     }
 
     renderControlsBar();

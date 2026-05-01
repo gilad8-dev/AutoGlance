@@ -82,7 +82,7 @@ export const DEFAULT_SETTINGS = {
 
   // Per-provider model selections - defaults point at each provider's newest family.
   anthropicModel: 'claude-opus-4-7',
-  openaiModel:    'gpt-5.4',
+  openaiModel:    'gpt-5.5',
   geminiModel:    'gemini-2.5-flash',
 
   // Glance master gate. Replaces the older `screenshotEnabled` key (migrated in

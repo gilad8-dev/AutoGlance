@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AutoGlance",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI browser copilot with visual page understanding - powered by Claude",
   "icons": {
     "16": "icons/icon16.png",
@@ -26,7 +26,8 @@
   "host_permissions": [
     "https://api.anthropic.com/*",
     "https://api.openai.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "<all_urls>"
   ],
   "action": {
     "default_title": "Open AutoGlance",
