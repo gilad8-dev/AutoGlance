@@ -4,6 +4,8 @@
 
 AutoGlance is a vision-based chat Chrome Extension (Manifest V3), where Each message can automatically include browser context. A smart routing architecture switches between a screenshot, a sanitized DOM extract, or nothing at all - giving the model exactly what it needs to answer about the current page, while reducing tokens per message, and conversation costs by 30%. 
 
+link to the Extension page: https://chromewebstore.google.com/detail/gnocjgnhefeegnchmchojcifblmemaol?utm_source=item-share-cb
+
 ---
 
 ## Features
